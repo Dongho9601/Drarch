@@ -1,0 +1,44 @@
+arch CacheHierarchy {
+    desc: "A CPU accesses two cache levels before reaching off-chip memory. Cycle and elapsed-time latencies remain distinct."
+
+    compute cpu {
+        label: "CPU"
+        throughput: 4 op/cycle
+    }
+
+    memory l1 {
+        label: "L1"
+        kind: cache
+        capacity: 32 KB
+        bandwidth: 64 B/cycle
+        latency: 4 cycle
+    }
+
+    memory l2 {
+        label: "L2"
+        kind: cache
+        capacity: 1 MB
+        bandwidth: 32 B/cycle
+        latency: 12 cycle
+        line_size: 64 B
+    }
+
+    memory dram {
+        label: "DRAM"
+        capacity: 16 GB
+        bandwidth: 64 GB/s
+        latency: 60 ns
+    }
+
+    cpu <-> l1 {
+        type: data
+    }
+
+    l1 <-> l2 {
+        type: data
+    }
+
+    l2 <-> dram {
+        type: data
+    }
+}

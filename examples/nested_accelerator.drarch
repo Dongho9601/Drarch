@@ -1,0 +1,53 @@
+arch Accelerator {
+    desc: "Subsystem boundaries keep the frontend and execution resources visible."
+
+    group frontend {
+        label: "Frontend"
+        desc: "Queues incoming requests and selects work to issue."
+
+        queue iq {
+            label: "Input Queue"
+            depth: 32
+        }
+
+        generic sched {
+            label: "Scheduler"
+            width: 2
+            display: [width]
+        }
+
+        iq -> sched
+    }
+
+    group execution {
+        label: "Execution"
+
+        group array {
+            label: "Compute Array"
+
+            compute pe {
+                label: "PE"
+                count: 8
+                throughput: 1 op/cycle
+            }
+        }
+
+        memory local_sram {
+            label: "Local SRAM"
+            capacity: 1 MB
+            latency: 4 cycle
+        }
+
+        array.pe <-> local_sram {
+            type: data
+        }
+    }
+
+    frontend.sched -> execution.array.pe {
+        type: request
+    }
+
+    execution.array.pe -> frontend.iq {
+        type: backpressure
+    }
+}

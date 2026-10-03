@@ -1,0 +1,42 @@
+arch CPU {
+    desc: "A simple five-stage processor datapath."
+
+    generic fetch {
+        label: "Fetch"
+        throughput: 4 op/cycle
+        display: [throughput]
+    }
+
+    generic decode {
+        label: "Decode"
+        width: 4
+        display: [width]
+    }
+
+    queue issue {
+        label: "Issue Queue"
+        depth: 32 entries
+        output_bw: 4 op/cycle
+    }
+
+    compute execute {
+        label: "Execute"
+        count: 4
+        throughput: 1 op/cycle
+        latency: 1 cycle
+    }
+
+    generic commit {
+        label: "Commit"
+        width: 4
+        display: [width]
+    }
+
+    fetch -> decode
+
+    decode -> issue
+
+    issue -> execute
+
+    execute -> commit
+}

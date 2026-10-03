@@ -1,0 +1,49 @@
+arch NoCSystem {
+    desc: "Three compute clients share a network-on-chip and memory controller."
+
+    compute cpu {
+        label: "CPU"
+    }
+
+    compute npu {
+        label: "NPU"
+        count: 8
+    }
+
+    compute dsp {
+        label: "DSP"
+    }
+
+    generic noc {
+        label: "Network-on-Chip"
+        desc: "Abstract network fabric. Routing details are intentionally hidden."
+        bandwidth: 128 B/cycle
+        display: [topology, bandwidth]
+        topology: mesh
+    }
+
+    generic mc {
+        label: "Memory Controller"
+        policy: round_robin
+    }
+
+    memory dram {
+        label: "DRAM"
+        capacity: 16 GB
+        bandwidth: 128 GB/s
+    }
+
+    cpu <-> noc
+
+    npu <-> noc
+
+    dsp <-> noc
+
+    noc <-> mc
+
+    mc <-> dram
+
+    layout {
+        columns: [[cpu, npu, dsp], noc, mc, dram]
+    }
+}

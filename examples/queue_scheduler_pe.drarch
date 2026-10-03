@@ -1,0 +1,53 @@
+arch QueueSchedulerPE {
+    desc: "A request queue decouples arrivals from a four-wide scheduler. The scheduler signals backpressure upstream."
+
+    queue requests {
+        label: "Request Queue"
+        desc: "Stores up to 32 requests. Backpressure stops new requests when the scheduler cannot accept work."
+        depth: 32 entries
+        input_bw: 4 req/cycle
+        output_bw: 4 req/cycle
+    }
+
+    generic sched {
+        label: "Scheduler"
+        width: 4
+        display: [width]
+    }
+
+    compute pe {
+        label: "PE"
+        count: 4
+        throughput: 1 op/cycle
+    }
+
+    memory l2 {
+        label: "L2"
+        kind: cache
+        capacity: 1 MB
+        latency: 8 cycle
+    }
+
+    requests -> sched {
+        type: request
+        rate: 4 req/cycle
+    }
+
+    sched -> pe {
+        type: data
+    }
+
+    pe <-> l2 {
+        type: data
+        bandwidth: 32 B/cycle
+    }
+
+    sched -> requests {
+        desc: "The scheduler asks the queue to hold its next request."
+        type: backpressure
+    }
+
+    layout {
+        columns: [requests, sched, [pe, l2]]
+    }
+}

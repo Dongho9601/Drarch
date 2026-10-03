@@ -1,0 +1,54 @@
+arch NPU {
+    desc: "Requests feed a compact PE array backed by local SRAM and external DRAM."
+
+    queue input_q {
+        label: "Input Queue"
+        desc: "Holds requests until the scheduler can issue them."
+        depth: 32
+        input_bw: 4 req/cycle
+        output_bw: 2 req/cycle
+    }
+
+    generic sched {
+        label: "Scheduler"
+        width: 2
+        latency: 2 cycle
+        display: [width]
+    }
+
+    compute pe {
+        label: "PE"
+        count: 8
+        throughput: 1 op/cycle
+    }
+
+    memory sram {
+        label: "Local SRAM"
+        capacity: 512 KB
+        bandwidth: 32 B/cycle
+        latency: 4 cycle
+    }
+
+    memory dram {
+        label: "DRAM"
+        capacity: 8 GB
+        bandwidth: 128 GB/s
+        latency: 40 ns
+    }
+
+    input_q -> sched {
+        rate: 2 req/cycle
+    }
+
+    sched -> pe {
+        rate: 1.7 op/cycle
+    }
+
+    pe <-> sram {
+        bandwidth: 28 B/cycle
+    }
+
+    sram <-> dram {
+        type: data
+    }
+}

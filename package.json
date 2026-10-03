@@ -1,0 +1,31 @@
+{
+  "name": "drarch",
+  "version": "0.1.0",
+  "description": "Computer architecture diagrams as code",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "drarch": "bin/drarch.js"
+  },
+  "exports": "./src/index.js",
+  "files": [
+    "bin",
+    "src",
+    "examples",
+    "docs",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "examples": "node scripts/render-examples.js"
+  },
+  "dependencies": {
+    "elkjs": "0.12.0"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "2.6.2",
+    "jsdom": "26.1.0"
+  }
+}
