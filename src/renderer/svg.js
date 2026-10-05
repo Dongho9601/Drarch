@@ -5,7 +5,16 @@ const n = value => Number(value.toFixed(2));
 const styles = `
   .drarch-diagram { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #25292e; }
   .drarch-diagram .block-shape { fill: #fff; stroke: #434a52; stroke-width: 1.2; }
-  .drarch-diagram .detail { fill: none; stroke: #a4a9af; stroke-width: 1; }
+  .drarch-diagram .component-compute .block-shape { fill: #f8eddb; stroke: #806537; }
+  .drarch-diagram .component-memory .block-shape { fill: #e7eff8; stroke: #526e90; }
+  .drarch-diagram .component-queue .block-shape { fill: #e8f2ef; stroke: #53796d; }
+  .drarch-diagram .component-buffer .block-shape { fill: #eef4e4; stroke: #71834e; }
+  .drarch-diagram .component-generic .block-shape { fill: #eee9f5; stroke: #77628b; }
+  .drarch-diagram .component-crossbar .block-shape { fill: #e2f1f3; stroke: #477d84; }
+  .drarch-diagram .component-mux .block-shape,
+  .drarch-diagram .component-demux .block-shape { fill: #f5e9e3; stroke: #926b57; }
+  .drarch-diagram .component-register .block-shape { fill: #edf0f3; stroke: #65717e; }
+  .drarch-diagram .detail { fill: none; stroke: #7d8791; stroke-width: 1.2; }
   .drarch-diagram .type { font-size: 10px; letter-spacing: 1.4px; fill: #727982; }
   .drarch-diagram .heading { font-size: 17px; font-weight: 600; fill: #25292e; }
   .drarch-diagram .property { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; fill: #4e5660; }
@@ -22,9 +31,9 @@ const styles = `
   .drarch-diagram .dependency .edge-line { stroke-dasharray: 1 5; }
   .drarch-diagram .edge-hit { fill: none; stroke: transparent; stroke-width: 14; }
   .drarch-diagram [data-key] { cursor: pointer; outline: none; }
-  .drarch-diagram [data-key]:focus .block-shape, .drarch-diagram .selected .block-shape { stroke: #1f5d89; stroke-width: 2.3; }
-  .drarch-diagram [data-key]:focus .group-shape, .drarch-diagram .selected .group-shape { stroke: #1f5d89; stroke-width: 2; }
-  .drarch-diagram [data-key]:focus .edge-line, .drarch-diagram .selected .edge-line { stroke: #1f5d89; stroke-width: 2.3; }
+  .drarch-diagram [data-key]:focus .block-shape, .drarch-diagram .selected .block-shape { stroke: #1f5d89; stroke-width: 2.76; }
+  .drarch-diagram [data-key]:focus .group-shape, .drarch-diagram .selected .group-shape { stroke: #1f5d89; stroke-width: 2.4; }
+  .drarch-diagram [data-key]:focus .edge-line, .drarch-diagram .selected .edge-line { stroke: #1f5d89; stroke-width: 2.76; }
 `;
 function details(entity, kind, interactive) {
   const label = entity.label || entity.id;
@@ -33,17 +42,18 @@ function details(entity, kind, interactive) {
   return { attrs, title };
 }
 function shape(type, w, h) {
-  const rect = `<rect class="block-shape" width="${w}" height="${h}"${type === 'buffer' ? ' rx="8"' : ''}/>`;
-  if (type === 'compute') return `<path class="block-shape" d="M 8 0 H ${w - 8} L ${w} 8 V ${h - 8} L ${w - 8} ${h} H 8 L 0 ${h - 8} V 8 Z"/>`;
+  const radius = type === 'buffer' ? 22 : 0;
+  const rect = `<rect class="block-shape" width="${w}" height="${h}"${radius ? ` rx="${radius}"` : ''}/>`;
+  if (type === 'compute') return `<path class="block-shape" d="M 20 0 H ${w - 20} L ${w} 20 V ${h - 20} L ${w - 20} ${h} H 20 L 0 ${h - 20} V 20 Z"/>`;
   if (type === 'mux' || type === 'demux') {
-    const points = type === 'mux' ? `0,0 ${w},12 ${w},${h - 12} 0,${h}` : `0,12 ${w},0 ${w},${h} 0,${h - 12}`;
+    const points = type === 'mux' ? `0,0 ${w},24 ${w},${h - 24} 0,${h}` : `0,24 ${w},0 ${w},${h} 0,${h - 24}`;
     return `<polygon class="block-shape" points="${points}"/>`;
   }
   const details = {
-    queue: `<path class="detail" d="M 10 0 V ${h} M ${w - 10} 0 V ${h}"/>`,
+    queue: `<path class="detail" d="M 14 0 V ${h} M ${w - 14} 0 V ${h} M 0 ${h / 3} H 14 M 0 ${h * 2 / 3} H 14 M ${w - 14} ${h / 3} H ${w} M ${w - 14} ${h * 2 / 3} H ${w}"/>`,
     register: `<rect class="detail" x="4" y="4" width="${w - 8}" height="${h - 8}"/>`,
-    memory: `<path class="detail" d="M 0 ${h - 8} H ${w} M 0 ${h - 4} H ${w}"/>`,
-    crossbar: `<path class="detail" d="M ${w - 30} 12 l 16 16 m 0 -16 l -16 16"/>`,
+    memory: `<path class="detail" d="M 0 ${h - 16} H ${w} M 0 ${h - 8} H ${w} M ${w / 4} ${h - 16} V ${h} M ${w / 2} ${h - 16} V ${h} M ${w * 3 / 4} ${h - 16} V ${h}"/>`,
+    crossbar: `<path class="detail" d="M ${w - 38} 10 l 24 24 m 0 -24 l -24 24"/>`,
   };
   return rect + (details[type] ?? '');
 }
@@ -76,7 +86,8 @@ export function renderSVG(model, layout, { interactive = false } = {}) {
   const componentMap = new Map(model.components.map(c => [c.id, c]));
   for (const box of layout.nodes) {
     const component = componentMap.get(box.id), p = componentPresentation(component), d = details(component, 'component', interactive);
-    parts.push(`<g transform="translate(${n(box.x)} ${n(box.y)})"${d.attrs}>${d.title}${shape(component.type, n(box.width), n(box.height))}<text class="type" x="24" y="23">${component.type.toUpperCase()}</text>`);
+    const typeY = component.type === 'mux' || component.type === 'demux' ? 30 : 23;
+    parts.push(`<g class="component-${escapeXML(component.type)}" transform="translate(${n(box.x)} ${n(box.y)})"${d.attrs}>${d.title}${shape(component.type, n(box.width), n(box.height))}<text class="type" x="24" y="${typeY}">${component.type.toUpperCase()}</text>`);
     p.titleLines.forEach((line, i) => parts.push(`<text class="heading" x="24" y="${48 + i * 22}">${escapeXML(line)}</text>`));
     p.propertyLines.forEach((line, i) => parts.push(`<text class="property" x="24" y="${48 + p.titleLines.length * 22 + i * 20}">${escapeXML(line)}</text>`));
     parts.push('</g>');
