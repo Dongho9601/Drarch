@@ -1,10 +1,14 @@
 import { readFileSync } from 'node:fs';
 import { escapeXML, renderSVG } from './svg.js';
+import { fieldName, FLOW_DASHES } from './presentation.js';
 const css = readFileSync(new URL('./viewer.css', import.meta.url), 'utf8');
 const script = readFileSync(new URL('./viewer.js', import.meta.url), 'utf8');
 
 export function renderHTML(model, geometry) {
   const title = escapeXML(model.architecture.label);
+  const usedFlows = new Set(model.connections.map(edge => edge.properties.type?.value ?? 'untyped'));
+  const flowTypes = [...Object.keys(FLOW_DASHES), 'untyped'].filter(type => usedFlows.has(type));
+  const legend = flowTypes.length ? `<details class="legend"><summary>Flow legend</summary><ul>${flowTypes.map(type => `<li><svg width="44" height="16" viewBox="0 0 44 16" aria-hidden="true"><path d="M 0 8 H 42" fill="none" stroke="#545e69" stroke-width="1.6" stroke-dasharray="${FLOW_DASHES[type] || 'none'}"/></svg>${fieldName(type)}</li>`).join('')}</ul></details>` : '';
   // Script-data elements still recognize </script>. Escape every '<' in source
   // data; the viewer inserts all user text with textContent, never innerHTML.
   const data = JSON.stringify(model).replaceAll('<', '\\u003c').replaceAll('>', '\\u003e').replaceAll('&', '\\u0026');
@@ -18,14 +22,20 @@ export function renderHTML(model, geometry) {
 <style>${css}</style>
 </head>
 <body>
-<header><span class="brand">DRARCH</span><div><h1>${title}</h1><p>${model.components.length} components · ${model.connections.length} connections</p></div></header>
+<a class="skip-link" href="#canvas">Skip to diagram</a>
+<header class="page-header"><div class="identity"><span class="brand">Drarch</span><span class="tagline">Architecture explorer</span></div><div class="architecture-heading"><h1>${title}</h1><p>${model.components.length} components · ${model.groups.length} groups · ${model.connections.length} connections</p></div></header>
 <main class="workspace">
 <section class="drawing" aria-label="Architecture diagram">
-<nav class="toolbar" aria-label="Diagram controls"><button id="zoom-out" aria-label="Zoom out">−</button><button id="zoom-in" aria-label="Zoom in">+</button><button id="fit">Fit</button><button id="overview">Overview</button><span id="zoom-level"></span></nav>
-<div id="canvas">${renderSVG(model, geometry, { interactive: true })}</div>
+<nav class="toolbar js-only" aria-label="Diagram controls"><div class="zoom-controls"><button id="zoom-out" aria-label="Zoom out" title="Zoom out (−)">−</button><output id="zoom-level" aria-label="Zoom level"></output><button id="zoom-in" aria-label="Zoom in" title="Zoom in (+)">+</button></div><button id="fit" aria-keyshortcuts="f" title="Fit diagram (F)">Fit diagram</button><button id="actual-size" aria-keyshortcuts="0" title="Actual size (0)">Actual size</button><button id="overview" title="Return to architecture details (Escape)">Overview</button></nav>
+<div id="canvas" tabindex="0" aria-label="Diagram canvas. Use arrow keys to scroll.">${!model.components.length && !model.groups.length ? '<p class="empty-diagram">No blocks yet. Add a component to the source file and render it again.</p>' : ''}${renderSVG(model, geometry, { interactive: true })}</div>
+<div class="canvas-footer js-only"><p class="canvas-hint">Select to inspect. Scroll to explore.</p><a href="#inspector">View details</a></div>
 </section>
-<aside aria-label="Inspector"><p id="inspector-kind">Architecture</p><h2 id="inspector-title">${title}</h2><p id="inspector-id"></p><p id="inspector-desc"></p><dl id="inspector-properties"></dl><p class="help">Select a block, group, or connection to inspect it. Use Tab to focus, Enter to select, and Escape to return to the overview.</p></aside>
+<aside aria-label="Architecture details">
+<section class="explorer js-only" aria-label="Find a block"><label for="search">Find a block <span class="shortcut" aria-hidden="true">/</span></label><input id="search" type="search" placeholder="Search names, IDs, types…" autocomplete="off" spellcheck="false" aria-controls="outline" aria-keyshortcuts="/"><p id="search-count" role="status"></p><nav id="outline" aria-label="Blocks and groups"></nav></section>
+<section id="inspector" tabindex="-1" aria-label="Inspector"><p id="inspector-kind">Architecture</p><h2 id="inspector-title">${title}</h2><p id="inspector-id">${escapeXML(model.architecture.id)}</p><p id="inspector-desc"${model.architecture.desc ? '' : ' hidden'}>${escapeXML(model.architecture.desc)}</p><dl id="inspector-properties"><dt>Components</dt><dd>${model.components.length}</dd><dt>Groups</dt><dd>${model.groups.length}</dd><dt>Connections</dt><dd>${model.connections.length}</dd></dl><nav id="inspector-connections" aria-label="Connected blocks" hidden><h3>Connections</h3><ul></ul></nav>${legend}<p class="help js-only">Tab to focus · Enter to select · Esc for overview.<br>/ to search · F to fit · 0 for actual size · + / − to zoom.</p></section>
+</aside>
 </main>
+<p id="selection-status" class="sr-only" role="status"></p>
 <div id="tooltip" role="tooltip" hidden></div>
 <noscript><p>The diagram is available without JavaScript. Enable JavaScript to inspect properties.</p></noscript>
 <script type="application/json" id="drarch-model">${data}</script>

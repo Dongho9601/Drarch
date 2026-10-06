@@ -2,9 +2,15 @@
 
 **Computer architecture diagrams as code.**
 
-Drarch is a text-first, AI-friendly diagramming language for computer architecture. Users describe queues, buffers, registers, compute units, memories, multiplexers, demultiplexers, crossbars, and generic named blocks in a `.drarch` file. Drarch turns that description into an architecture diagram in a standalone HTML file without requiring exact graphical coordinates.
+Describe queues, compute units, memories, and their connections in a `.drarch` file. Drarch validates the architecture, lays out the diagram, and produces an interactive HTML file or a static SVG. No coordinates, server, or network connection are required to view the result.
 
 The goal is to help a computer architect externalize a correct mental model in minutes, then refine it through small, reviewable source changes.
+
+[Quick start](#quick-start) · [Using the viewer](#using-the-viewer) · [Examples](#examples) · [Language reference](docs/language.md) · [Design principles](#design-principles)
+
+![A request queue feeds a scheduler and four processing elements; backpressure returns to the queue and an L2 cache sits below the processing elements.](docs/preview.svg)
+
+The [queue / scheduler / PE source](examples/queue_scheduler_pe.drarch) produces this diagram. The HTML viewer also provides search, linked properties, and connection highlighting.
 
 **Status:** The first implementation is available. Drarch uses JavaScript on Node.js 20+ and the [ELK layout engine](https://github.com/kieler/elkjs). It includes the compiler, typed validation, canonical formatter, JSON inspection, automatic layout, standalone HTML viewer, static SVG export, and six example architectures. The specification below continues to describe the product goals; the [language reference](docs/language.md) records the implemented schemas, syntax, and current limits.
 
@@ -18,7 +24,7 @@ node bin/drarch.js check examples/queue_scheduler_pe.drarch
 node bin/drarch.js render examples/queue_scheduler_pe.drarch
 ```
 
-Open `examples/queue_scheduler_pe.html` directly in a browser. The file includes its diagram, styles, descriptions, properties, and interaction code; it needs no server or network access. Select a block or connection to inspect it, or use Tab and Enter. Fit and zoom controls help with larger diagrams.
+Open `examples/queue_scheduler_pe.html` directly in a browser. Select a block or connection to inspect its properties. Use **Fit diagram** for the full architecture, **Actual size** to read its text, or **Find a block** to jump to a component.
 
 ```bash
 # Inspect the semantic model, preserving written numbers and units.
@@ -36,9 +42,44 @@ npm test
 npm run examples
 ```
 
+Open `output/index.html` to browse all generated examples and their SVG exports.
+
 To expose the shorter `drarch` command while developing, run `npm link` from this checkout. No build step is required. For a clean install from the lockfile, use `npm ci`; a runtime-only install can use `npm ci --omit=dev`.
 
 Tests cover compiler diagnostics, formatting round trips, CLI behavior, deterministic layout, group containment, edge endpoints, SVG rasterization, and viewer events in a DOM test environment. Browser compatibility and dense-diagram visual quality still need broader testing. Column lists containing groups remain soft preferences; component-only lists support vertical stacking, including a connected memory below a compute array.
+
+## Using the viewer
+
+The diagram occupies a scrollable canvas; the sidebar contains search and the inspector. Search matches names, qualified IDs such as `execution.array.pe`, and component types. Selecting a result brings the block into view at actual size or your larger zoom level. Selecting a group fits that group into view.
+
+Select a component to highlight its connected paths. The inspector lists its connections and links to its parent group. Select a connection to follow its **From** and **To** links. The **Flow legend** explains the line patterns used in the current diagram. On a narrow screen, the sidebar sits below the canvas; **View details** jumps to the inspector.
+
+| Action | Keyboard |
+| --- | --- |
+| Find a block | `/` |
+| Select the first search result | `Enter` in the search field |
+| Fit the entire diagram | `F` |
+| Actual size | `0` |
+| Zoom in / out | `+` / `-` |
+| Focus and select a diagram element | `Tab`, then `Enter` or `Space` |
+| Return to architecture details | `Escape` or **Overview** |
+
+Shortcuts do not interrupt typing or browser shortcuts. Escape clears an active search first. Fit responds to canvas resizing; manual zoom stays at the chosen scale. Very large architectures are small in overview—use search to inspect a subsystem. Without JavaScript, the diagram, architecture description, counts, and flow legend remain available.
+
+## Examples
+
+Run `npm run examples`, then open `output/index.html`. Each source produces an offline HTML viewer and an SVG.
+
+| Source | What it demonstrates |
+| --- | --- |
+| [Queue / scheduler / PE](examples/queue_scheduler_pe.drarch) | A small request path, upstream backpressure, and memory below compute |
+| [CPU pipeline](examples/cpu_pipeline.drarch) | Five pipeline stages and issue width |
+| [Cache hierarchy](examples/cache_hierarchy.drarch) | Memory hierarchy and bandwidth |
+| [NPU](examples/npu.drarch) | Compute arrays and local storage |
+| [Network on chip](examples/noc.drarch) | Routing and multiple connections |
+| [Nested accelerator](examples/nested_accelerator.drarch) | Groups and qualified references |
+
+The sections below explain the product design and longer-term goals. The [language reference](docs/language.md) is the source for implemented syntax and current limits.
 
 ## Why Drarch?
 

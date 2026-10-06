@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="drarch-diagram" width="1440" height="502" viewBox="0 0 1440 502" role="img" aria-label="QueueSchedulerPE architecture diagram">
+<title>QueueSchedulerPE</title>
+<desc>A request queue decouples arrivals from a four-wide scheduler. The scheduler signals backpressure upstream.</desc>
+<style>
+  .drarch-diagram { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #25292e; }
+  .drarch-diagram .block-shape { fill: #fff; stroke: #434a52; stroke-width: 1.2; }
+  .drarch-diagram .component-compute .block-shape { fill: #fcf7ed; stroke: #806537; }
+  .drarch-diagram .component-memory .block-shape { fill: #f0f5fa; stroke: #526e90; }
+  .drarch-diagram .component-queue .block-shape { fill: #f1f7f4; stroke: #53796d; }
+  .drarch-diagram .component-buffer .block-shape { fill: #f5f8ef; stroke: #71834e; }
+  .drarch-diagram .component-generic .block-shape { fill: #fafafa; stroke: #69717c; }
+  .drarch-diagram .component-crossbar .block-shape { fill: #eff7f8; stroke: #477d84; }
+  .drarch-diagram .component-mux .block-shape,
+  .drarch-diagram .component-demux .block-shape { fill: #fbf4f0; stroke: #926b57; }
+  .drarch-diagram .component-register .block-shape { fill: #f5f6f8; stroke: #65717e; }
+  .drarch-diagram .detail { fill: none; stroke: #7d8791; stroke-width: 1.2; }
+  .drarch-diagram .type { font-size: 11px; letter-spacing: 1.2px; fill: #545e69; }
+  .drarch-diagram .heading { font-size: 17px; font-weight: 600; fill: #25292e; }
+  .drarch-diagram .property { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; fill: #424c57; }
+  .drarch-diagram .group-shape { fill: #fafbfc; stroke: #c1c6cc; stroke-width: 1; }
+  .drarch-diagram .group-label { font-size: 15px; font-weight: 500; fill: #555e68; }
+  .drarch-diagram .edge-line { fill: none; stroke: #646c76; stroke-width: 1.3; }
+  .drarch-diagram .edge-label { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; fill: #555e68; }
+  .drarch-diagram .data .edge-line { stroke: #343b44; stroke-width: 1.6; }
+  .drarch-diagram .request .edge-line { stroke-dasharray: 8 3; }
+  .drarch-diagram .response .edge-line { stroke-dasharray: 5 3; }
+  .drarch-diagram .control .edge-line { stroke-dasharray: 2 3; }
+  .drarch-diagram .backpressure .edge-line { stroke-dasharray: 7 3 2 3; }
+  .drarch-diagram .credit .edge-line { stroke-dasharray: 2 2 2 6; }
+  .drarch-diagram .dependency .edge-line { stroke-dasharray: 1 5; }
+  .drarch-diagram .edge-hit { fill: none; stroke: transparent; stroke-width: 14; }
+  .drarch-diagram .related .edge-line { stroke: #215e86; stroke-width: 2; }
+  .drarch-diagram .related .block-shape { stroke: #215e86; stroke-width: 1.8; }
+  .drarch-diagram [data-key] { cursor: pointer; outline: none; }
+  .drarch-diagram [data-key]:focus .block-shape, .drarch-diagram .selected .block-shape { stroke: #1f5d89; stroke-width: 2.76; }
+  .drarch-diagram [data-key]:focus .group-shape, .drarch-diagram .selected .group-shape { stroke: #1f5d89; stroke-width: 2.4; }
+  .drarch-diagram [data-key]:focus .edge-line, .drarch-diagram .selected .edge-line { stroke: #1f5d89; stroke-width: 2.76; }
+</style><defs><marker id="drarch-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 1 1 L 9 5 L 1 9" fill="none" stroke="#646c76" stroke-width="1.4" stroke-dasharray="none"/></marker><marker id="drarch-arrow-start" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 9 1 L 1 5 L 9 9" fill="none" stroke="#646c76" stroke-width="1.4" stroke-dasharray="none"/></marker></defs>
+<rect width="100%" height="100%" fill="white"/>
+<g class="request">
+<path class="edge-line" d="M 272 90.67 L 296 90.67 L 296 98 L 589.28 98" marker-end="url(#drarch-arrow)"/>
+<rect x="344" y="69" width="173.28" height="26" fill="white"/>
+<text class="edge-label" x="350" y="85">request · 4 req/cycle</text>
+</g>
+<g class="data">
+<path class="edge-line" d="M 829.28 116 L 1016 116 L 1040 116" marker-end="url(#drarch-arrow)"/>
+<rect x="901.28" y="119" width="42.72" height="26" fill="white"/>
+<text class="edge-label" x="907.28" y="135">data</text>
+</g>
+<g class="backpressure"><title>The scheduler asks the queue to hold its next request.</title>
+<path class="edge-line" d="M 589.28 134 L 296 134 L 296 141.33 L 272 141.33" marker-end="url(#drarch-arrow)"/>
+<rect x="378.56" y="137" width="104.16" height="26" fill="white"/>
+<text class="edge-label" x="384.56" y="153">backpressure</text>
+</g>
+<g class="data">
+<path class="edge-line" d="M 1212 170 L 1212 340" marker-end="url(#drarch-arrow)" marker-start="url(#drarch-arrow-start)"/>
+<rect x="1067.44" y="242" width="142.56" height="26" fill="white"/>
+<text class="edge-label" x="1073.44" y="258">data · 32 B/cycle</text>
+</g>
+<g class="component-queue" transform="translate(32 40)"><title>Stores up to 32 requests. Backpressure stops new requests when the scheduler cannot accept work.</title><rect class="block-shape" width="240" height="152"/><path class="detail" d="M 14 0 V 152 M 226 0 V 152 M 0 50.666666666666664 H 14 M 0 101.33333333333333 H 14 M 226 50.666666666666664 H 240 M 226 101.33333333333333 H 240"/><text class="type" x="24" y="23">QUEUE</text>
+<text class="heading" x="24" y="48">Request Queue</text>
+<text class="property" x="24" y="70">Depth: 32 entries</text>
+<text class="property" x="24" y="92">Input: 4 req/cycle</text>
+<text class="property" x="24" y="114">Output: 4 req/cycle</text>
+</g>
+<g class="component-generic" transform="translate(589.28 62)"><rect class="block-shape" width="240" height="108"/><text class="type" x="24" y="23">GENERIC</text>
+<text class="heading" x="24" y="48">Scheduler</text>
+<text class="property" x="24" y="70">Width: 4</text>
+</g>
+<g class="component-compute" transform="translate(1040 62)"><path class="block-shape" d="M 20 0 H 324 L 344 20 V 88 L 324 108 H 20 L 0 88 V 20 Z"/><text class="type" x="24" y="23">COMPUTE</text>
+<text class="heading" x="24" y="48">PE ×4</text>
+<text class="property" x="24" y="70">Throughput: 1 op/cycle / instance</text>
+</g>
+<g class="component-memory" transform="translate(1092 340)"><rect class="block-shape" width="240" height="130"/><path class="detail" d="M 0 114 H 240 M 0 122 H 240 M 60 114 V 130 M 120 114 V 130 M 180 114 V 130"/><text class="type" x="24" y="23">MEMORY</text>
+<text class="heading" x="24" y="48">L2</text>
+<text class="property" x="24" y="70">Capacity: 1 MB</text>
+<text class="property" x="24" y="92">Latency: 8 cycle</text>
+</g>
+</svg>

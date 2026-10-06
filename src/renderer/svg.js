@@ -1,35 +1,32 @@
-import { componentPresentation } from './presentation.js';
+import { componentPresentation, FLOW_DASHES } from './presentation.js';
 
 export const escapeXML = text => String(text).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[c]);
 const n = value => Number(value.toFixed(2));
 const styles = `
   .drarch-diagram { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #25292e; }
   .drarch-diagram .block-shape { fill: #fff; stroke: #434a52; stroke-width: 1.2; }
-  .drarch-diagram .component-compute .block-shape { fill: #f8eddb; stroke: #806537; }
-  .drarch-diagram .component-memory .block-shape { fill: #e7eff8; stroke: #526e90; }
-  .drarch-diagram .component-queue .block-shape { fill: #e8f2ef; stroke: #53796d; }
-  .drarch-diagram .component-buffer .block-shape { fill: #eef4e4; stroke: #71834e; }
-  .drarch-diagram .component-generic .block-shape { fill: #eee9f5; stroke: #77628b; }
-  .drarch-diagram .component-crossbar .block-shape { fill: #e2f1f3; stroke: #477d84; }
+  .drarch-diagram .component-compute .block-shape { fill: #fcf7ed; stroke: #806537; }
+  .drarch-diagram .component-memory .block-shape { fill: #f0f5fa; stroke: #526e90; }
+  .drarch-diagram .component-queue .block-shape { fill: #f1f7f4; stroke: #53796d; }
+  .drarch-diagram .component-buffer .block-shape { fill: #f5f8ef; stroke: #71834e; }
+  .drarch-diagram .component-generic .block-shape { fill: #fafafa; stroke: #69717c; }
+  .drarch-diagram .component-crossbar .block-shape { fill: #eff7f8; stroke: #477d84; }
   .drarch-diagram .component-mux .block-shape,
-  .drarch-diagram .component-demux .block-shape { fill: #f5e9e3; stroke: #926b57; }
-  .drarch-diagram .component-register .block-shape { fill: #edf0f3; stroke: #65717e; }
+  .drarch-diagram .component-demux .block-shape { fill: #fbf4f0; stroke: #926b57; }
+  .drarch-diagram .component-register .block-shape { fill: #f5f6f8; stroke: #65717e; }
   .drarch-diagram .detail { fill: none; stroke: #7d8791; stroke-width: 1.2; }
-  .drarch-diagram .type { font-size: 10px; letter-spacing: 1.4px; fill: #727982; }
+  .drarch-diagram .type { font-size: 11px; letter-spacing: 1.2px; fill: #545e69; }
   .drarch-diagram .heading { font-size: 17px; font-weight: 600; fill: #25292e; }
-  .drarch-diagram .property { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; fill: #4e5660; }
+  .drarch-diagram .property { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; fill: #424c57; }
   .drarch-diagram .group-shape { fill: #fafbfc; stroke: #c1c6cc; stroke-width: 1; }
   .drarch-diagram .group-label { font-size: 15px; font-weight: 500; fill: #555e68; }
   .drarch-diagram .edge-line { fill: none; stroke: #646c76; stroke-width: 1.3; }
   .drarch-diagram .edge-label { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; fill: #555e68; }
   .drarch-diagram .data .edge-line { stroke: #343b44; stroke-width: 1.6; }
-  .drarch-diagram .request .edge-line { stroke-dasharray: 8 3; }
-  .drarch-diagram .response .edge-line { stroke-dasharray: 5 3; }
-  .drarch-diagram .control .edge-line { stroke-dasharray: 2 3; }
-  .drarch-diagram .backpressure .edge-line { stroke-dasharray: 7 3 2 3; }
-  .drarch-diagram .credit .edge-line { stroke-dasharray: 2 2 2 6; }
-  .drarch-diagram .dependency .edge-line { stroke-dasharray: 1 5; }
+  ${Object.entries(FLOW_DASHES).filter(([, dash]) => dash).map(([type, dash]) => `.drarch-diagram .${type} .edge-line { stroke-dasharray: ${dash}; }`).join('\n  ')}
   .drarch-diagram .edge-hit { fill: none; stroke: transparent; stroke-width: 14; }
+  .drarch-diagram .related .edge-line { stroke: #215e86; stroke-width: 2; }
+  .drarch-diagram .related .block-shape { stroke: #215e86; stroke-width: 1.8; }
   .drarch-diagram [data-key] { cursor: pointer; outline: none; }
   .drarch-diagram [data-key]:focus .block-shape, .drarch-diagram .selected .block-shape { stroke: #1f5d89; stroke-width: 2.76; }
   .drarch-diagram [data-key]:focus .group-shape, .drarch-diagram .selected .group-shape { stroke: #1f5d89; stroke-width: 2.4; }
@@ -37,7 +34,7 @@ const styles = `
 `;
 function details(entity, kind, interactive) {
   const label = entity.label || entity.id;
-  const attrs = interactive ? ` data-key="${escapeXML(`${kind}:${entity.id}`)}" tabindex="0" role="button" aria-label="${escapeXML(label)}"` : '';
+  const attrs = interactive ? ` data-key="${escapeXML(`${kind}:${entity.id}`)}" tabindex="0" role="button" aria-pressed="false" aria-label="${escapeXML(`${label}, ${entity.type ?? kind}`)}"` : '';
   const title = entity.desc ? `<title>${escapeXML(entity.desc)}</title>` : '';
   return { attrs, title };
 }
@@ -89,7 +86,7 @@ export function renderSVG(model, layout, { interactive = false } = {}) {
     const typeY = component.type === 'mux' || component.type === 'demux' ? 30 : 23;
     parts.push(`<g class="component-${escapeXML(component.type)}" transform="translate(${n(box.x)} ${n(box.y)})"${d.attrs}>${d.title}${shape(component.type, n(box.width), n(box.height))}<text class="type" x="24" y="${typeY}">${component.type.toUpperCase()}</text>`);
     p.titleLines.forEach((line, i) => parts.push(`<text class="heading" x="24" y="${48 + i * 22}">${escapeXML(line)}</text>`));
-    p.propertyLines.forEach((line, i) => parts.push(`<text class="property" x="24" y="${48 + p.titleLines.length * 22 + i * 20}">${escapeXML(line)}</text>`));
+    p.propertyLines.forEach((line, i) => parts.push(`<text class="property" x="24" y="${48 + p.titleLines.length * 22 + i * 22}">${escapeXML(line)}</text>`));
     parts.push('</g>');
   }
   parts.push('</svg>');

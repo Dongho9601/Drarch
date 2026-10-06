@@ -10,20 +10,53 @@
   const canvas = document.getElementById('canvas');
   const tooltip = document.getElementById('tooltip');
   const properties = document.getElementById('inspector-properties');
+  const elements = new Map([...svg.querySelectorAll('[data-key]')].map(element => [element.dataset.key, element]));
+  const outline = document.getElementById('outline');
+  const search = document.getElementById('search');
+  let selectedKey = `architecture:${model.architecture.id}`;
   const valueText = v => v.kind === 'list' ? `[${v.items.map(valueText).join(', ')}]` : v.kind === 'number' && v.unit ? `${v.value} ${v.unit}` : v.value;
   const fieldName = name => name.replaceAll('_', ' ').replace(/^./, s => s.toUpperCase());
+  const componentName = id => items.get(`component:${id}`)?.label || id;
+  const itemTitle = item => item.label || (item.kind === 'connection' ? `${componentName(item.source)} ${item.bidirectional ? '↔' : '→'} ${componentName(item.target)}` : item.id);
+  function itemButton(key, label) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = label;
+    button.addEventListener('click', () => navigateTo(key));
+    return button;
+  }
   function addProperty(name, value) {
     const term = document.createElement('dt'), description = document.createElement('dd');
-    term.textContent = name; description.textContent = value;
+    term.textContent = name;
+    if (value instanceof Node) description.append(value);
+    else description.textContent = value;
     properties.append(term, description);
   }
   function select(key, element) {
     const item = items.get(key);
     if (!item) return;
-    svg.querySelectorAll('.selected').forEach(e => e.classList.remove('selected'));
-    if (element) element.classList.add('selected');
+    selectedKey = key;
+    hideTooltip();
+    const related = new Set();
+    const members = new Set(item.kind === 'component' ? [item.id] : item.kind === 'group' ? model.components.filter(component => component.id.startsWith(`${item.id}.`)).map(component => component.id) : []);
+    const connections = model.connections.filter(edge => members.has(edge.source) || members.has(edge.target) || (item.kind === 'connection' && edge.id === item.id));
+    for (const edge of connections) {
+      related.add(`connection:${edge.id}`);
+      related.add(`component:${edge.source}`);
+      related.add(`component:${edge.target}`);
+    }
+    for (const [elementKey, target] of elements) {
+      target.classList.toggle('selected', target === element);
+      target.classList.toggle('related', related.has(elementKey) && target !== element);
+      target.setAttribute('aria-pressed', String(target === element));
+    }
+    for (const button of outline.querySelectorAll('button')) {
+      if (button.dataset.itemKey === key) button.setAttribute('aria-current', 'true');
+      else button.removeAttribute('aria-current');
+    }
     document.getElementById('inspector-kind').textContent = item.type ?? item.kind;
-    document.getElementById('inspector-title').textContent = item.label || item.id;
+    document.getElementById('inspector-title').textContent = itemTitle(item);
+    document.getElementById('selection-status').textContent = `${itemTitle(item)} selected. Details are in the inspector.`;
     document.getElementById('inspector-id').textContent = item.id;
     const desc = document.getElementById('inspector-desc');
     desc.textContent = item.desc; desc.hidden = !item.desc;
@@ -33,9 +66,10 @@
       addProperty('Groups', model.groups.length);
       addProperty('Connections', model.connections.length);
     }
-    if (item.parent) addProperty('Group', item.parent);
+    if (item.parent) addProperty('Group', itemButton(`group:${item.parent}`, items.get(`group:${item.parent}`).label));
     if (item.source) {
-      addProperty('From', item.source); addProperty('To', item.target);
+      addProperty('From', itemButton(`component:${item.source}`, componentName(item.source)));
+      addProperty('To', itemButton(`component:${item.target}`, componentName(item.target)));
       addProperty('Direction', item.bidirectional ? 'Bidirectional' : 'Directed');
     }
     for (const [name, value] of Object.entries(item.properties ?? {})) {
@@ -43,7 +77,43 @@
     }
     if (item.display !== undefined && item.display !== null) addProperty('Visible fields', item.display.join(', ') || 'Label only');
     if (item.loc) addProperty('Source', `Line ${item.loc.line}, column ${item.loc.column}`);
+    const connectionNav = document.getElementById('inspector-connections');
+    const connectionList = connectionNav.querySelector('ul');
+    connectionList.replaceChildren();
+    connectionNav.hidden = !members.size || !connections.length;
+    for (const edge of connections) {
+      const row = document.createElement('li');
+      const connection = items.get(`connection:${edge.id}`);
+      const button = itemButton(`connection:${edge.id}`, itemTitle(connection));
+      const detail = document.createElement('small');
+      detail.textContent = edge.properties.type?.value || 'Connection';
+      button.append(detail);
+      row.append(button);
+      connectionList.append(row);
+    }
   }
+  const navigableItems = [...items.values()].filter(item => item.kind === 'component' || item.kind === 'group');
+  function updateOutline() {
+    const query = search.value.trim().toLocaleLowerCase();
+    const matches = navigableItems.filter(item => `${item.label} ${item.id} ${item.type ?? item.kind}`.toLocaleLowerCase().includes(query));
+    outline.replaceChildren();
+    for (const item of matches) {
+      const key = `${item.kind}:${item.id}`;
+      const button = itemButton(key, item.label);
+      button.dataset.itemKey = key;
+      if (key === selectedKey) button.setAttribute('aria-current', 'true');
+      const detail = document.createElement('small');
+      detail.textContent = `${item.type ?? 'group'} · ${item.id}`;
+      button.append(detail);
+      outline.append(button);
+    }
+    document.getElementById('search-count').textContent = !matches.length ? (navigableItems.length ? 'No matching blocks. Try another name or type.' : 'No blocks in this architecture.') : `${matches.length} of ${navigableItems.length} blocks and groups`;
+  }
+  search.addEventListener('input', updateOutline);
+  search.addEventListener('keydown', event => {
+    if (event.key === 'Enter') { event.preventDefault(); outline.querySelector('button')?.click(); }
+    if (event.key === 'Escape' && search.value) { event.preventDefault(); search.value = ''; updateOutline(); }
+  });
   let tooltipOwner;
   function hideTooltip() {
     tooltip.hidden = true;
@@ -74,20 +144,65 @@
   }
   const overview = () => select(`architecture:${model.architecture.id}`);
   document.getElementById('overview').addEventListener('click', overview);
-  document.addEventListener('keydown', event => { if (event.key === 'Escape') { hideTooltip(); overview(); } });
+  document.addEventListener('keydown', event => {
+    if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (event.key === 'Escape') { hideTooltip(); overview(); return; }
+    if (event.target.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+    const actions = { f: 'fit', '0': 'actual-size', '+': 'zoom-in', '=': 'zoom-in', '-': 'zoom-out' };
+    if (event.key === '/') { event.preventDefault(); search.focus(); }
+    else if (actions[event.key.toLowerCase()]) { event.preventDefault(); document.getElementById(actions[event.key.toLowerCase()]).click(); }
+  });
   const width = svg.viewBox.baseVal.width, height = svg.viewBox.baseVal.height;
   let scale = 1, fitting = true;
+  function viewportSize() {
+    const padding = getComputedStyle(canvas);
+    const availableWidth = canvas.clientWidth - parseFloat(padding.paddingLeft || 0) - parseFloat(padding.paddingRight || 0);
+    const availableHeight = (canvas.clientHeight || height) - parseFloat(padding.paddingTop || 0) - parseFloat(padding.paddingBottom || 0);
+    return { width: Math.max(1, availableWidth), height: Math.max(1, availableHeight) };
+  }
+  function fitScale() {
+    const viewport = viewportSize();
+    return Math.min(1, viewport.width / width, viewport.height / height);
+  }
   function resize(value) {
-    scale = Math.max(0.1, Math.min(3, value));
+    const previous = svg.getBoundingClientRect(), viewport = canvas.getBoundingClientRect();
+    const centerX = viewport.left + canvas.clientWidth / 2, centerY = viewport.top + canvas.clientHeight / 2;
+    const focusX = Math.max(0, Math.min(width, (centerX - previous.left) / scale));
+    const focusY = Math.max(0, Math.min(height, (centerY - previous.top) / scale));
+    scale = Math.max(Math.min(0.1, fitScale()), Math.min(3, value));
     svg.style.width = `${width * scale}px`; svg.style.height = `${height * scale}px`;
-    document.getElementById('zoom-level').textContent = `${Math.round(scale * 100)}%`;
+    const current = svg.getBoundingClientRect();
+    canvas.scrollLeft = Math.max(0, canvas.scrollLeft + current.left + focusX * scale - centerX);
+    canvas.scrollTop = Math.max(0, canvas.scrollTop + current.top + focusY * scale - centerY);
+    document.getElementById('zoom-level').textContent = scale < 0.01 ? '<1%' : `${Math.round(scale * 100)}%`;
+    document.getElementById('zoom-in').disabled = scale >= 3;
+    document.getElementById('zoom-out').disabled = scale <= Math.min(0.1, fitScale());
     hideTooltip();
   }
-  function fit() { fitting = true; resize(Math.min(1, (canvas.clientWidth - (innerWidth <= 760 ? 16 : 48)) / width)); }
+  function fit() { fitting = true; resize(fitScale()); canvas.scrollLeft = 0; canvas.scrollTop = 0; }
+  function navigateTo(key) {
+    const element = elements.get(key);
+    if (!element) return;
+    fitting = false;
+    const bounds = element.getBoundingClientRect();
+    const available = viewportSize();
+    // Groups and long connections fit as a whole; individual blocks return to
+    // a readable scale. Selection never changes the underlying layout.
+    resize(key.startsWith('component:') ? Math.max(1, scale) : Math.min(1, available.width * scale / Math.max(1, bounds.width), available.height * scale / Math.max(1, bounds.height)));
+    const target = element.getBoundingClientRect(), viewport = canvas.getBoundingClientRect();
+    canvas.scrollLeft = Math.max(0, canvas.scrollLeft + target.left - viewport.left - (canvas.clientWidth - target.width) / 2);
+    canvas.scrollTop = Math.max(0, canvas.scrollTop + target.top - viewport.top - (canvas.clientHeight - target.height) / 2);
+    select(key, element);
+  }
   document.getElementById('zoom-in').addEventListener('click', () => { fitting = false; resize(scale * 1.2); });
   document.getElementById('zoom-out').addEventListener('click', () => { fitting = false; resize(scale / 1.2); });
   document.getElementById('fit').addEventListener('click', fit);
+  document.getElementById('actual-size').addEventListener('click', () => { fitting = false; resize(1); });
   canvas.addEventListener('scroll', hideTooltip);
   window.addEventListener('resize', () => { if (fitting) fit(); else hideTooltip(); });
-  overview(); fit();
+  document.documentElement.dataset.enhanced = 'true';
+  updateOutline(); overview(); fit();
+  if (typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(() => { if (fitting) fit(); }).observe(canvas);
+  }
 })();
