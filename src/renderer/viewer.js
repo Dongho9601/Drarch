@@ -25,12 +25,49 @@
     button.addEventListener('click', () => navigateTo(key));
     return button;
   }
-  function addProperty(name, value) {
+  function addProperty(name, value, list = properties) {
     const term = document.createElement('dt'), description = document.createElement('dd');
     term.textContent = name;
     if (value instanceof Node) description.append(value);
     else description.textContent = value;
-    properties.append(term, description);
+    list.append(term, description);
+  }
+  function showTopology(item) {
+    const topology = item.kind === 'component' ? model.topology[item.id] : null;
+    const section = document.getElementById('inspector-topology');
+    section.hidden = !topology;
+    const list = document.getElementById('topology-properties');
+    const rows = document.querySelector('#topology-flows tbody');
+    const notes = document.getElementById('topology-notes');
+    list.replaceChildren(); rows.replaceChildren(); notes.replaceChildren();
+    if (!topology) return;
+    if (topology.declared) {
+      addProperty('Behavior', fieldName(topology.declared.behavior), list);
+      addProperty('Declared inputs', topology.declared.inputs ?? 'Unspecified', list);
+      addProperty('Declared outputs', topology.declared.outputs ?? 'Unspecified', list);
+      if (topology.declared.policy) addProperty('Policy', topology.declared.policy, list);
+    }
+    for (const flow of topology.flows) {
+      const row = document.createElement('tr');
+      const name = document.createElement('th');
+      name.scope = 'row'; name.textContent = fieldName(flow.type); row.append(name);
+      for (const count of [flow.inputs, flow.outputs]) {
+        const cell = document.createElement('td'); cell.textContent = count; row.append(cell);
+      }
+      rows.append(row);
+    }
+    document.getElementById('topology-flows').hidden = !topology.flows.length;
+    for (const note of topology.notes) {
+      const line = document.createElement('li'); line.textContent = note; notes.append(line);
+    }
+    if (!topology.flows.length) {
+      const line = document.createElement('li'); line.textContent = 'No connections are declared for this block.'; notes.append(line);
+    }
+    notes.hidden = !notes.children.length;
+    const instances = document.getElementById('topology-instances');
+    const count = item.properties?.count;
+    instances.hidden = !count;
+    instances.textContent = count ? `One compact block represents ${valueText(count)} ${Number(count.value) === 1 ? 'instance' : 'instances'}. Connections attach to the block; peer counts do not describe per-instance wiring.` : '';
   }
   function select(key, element) {
     const item = items.get(key);
@@ -73,9 +110,12 @@
       addProperty('Direction', item.bidirectional ? 'Bidirectional' : 'Directed');
     }
     for (const [name, value] of Object.entries(item.properties ?? {})) {
-      addProperty(fieldName(name) + (name === 'throughput' && item.type === 'compute' ? ' (per instance)' : ''), valueText(value));
+      if (item.kind === 'component' && model.topology[item.id]?.declared && ['behavior', 'inputs', 'outputs', 'policy'].includes(name)) continue;
+      const label = name === 'count' && item.kind === 'component' ? 'Instances (compact block)' : fieldName(name);
+      addProperty(label + (name === 'throughput' && item.type === 'compute' ? ' (per instance)' : ''), valueText(value));
     }
-    if (item.display !== undefined && item.display !== null) addProperty('Visible fields', item.display.join(', ') || 'Label only');
+    showTopology(item);
+    if (item.display !== undefined && item.display !== null) addProperty('Optional visible fields', item.display.join(', ') || (item.kind === 'component' ? 'No optional fields; structure remains visible' : 'No optional fields'));
     if (item.loc) addProperty('Source', `Line ${item.loc.line}, column ${item.loc.column}`);
     const connectionNav = document.getElementById('inspector-connections');
     const connectionList = connectionNav.querySelector('ul');
@@ -86,7 +126,7 @@
       const connection = items.get(`connection:${edge.id}`);
       const button = itemButton(`connection:${edge.id}`, itemTitle(connection));
       const detail = document.createElement('small');
-      detail.textContent = edge.properties.type?.value || 'Connection';
+      detail.textContent = `${fieldName(edge.properties.type?.value ?? 'untyped')} · ${edge.source} ${edge.bidirectional ? '↔' : '→'} ${edge.target}`;
       button.append(detail);
       row.append(button);
       connectionList.append(row);
@@ -142,7 +182,23 @@
     element.addEventListener('focus', () => showTooltip(element));
     element.addEventListener('blur', hideTooltip);
   }
-  const overview = () => select(`architecture:${model.architecture.id}`);
+  const flowControls = [...document.querySelectorAll('input[data-flow]')];
+  function updateFlows() {
+    const emphasized = new Set(flowControls.filter(input => input.checked).map(input => input.dataset.flow));
+    for (const edge of model.connections) {
+      elements.get(`connection:${edge.id}`)?.classList.toggle('flow-dimmed', !emphasized.has(edge.properties.type?.value ?? 'untyped'));
+    }
+    const summary = document.getElementById('flow-summary');
+    if (summary) summary.textContent = emphasized.size === flowControls.length ? '(all emphasized)' : `(${emphasized.size}/${flowControls.length} emphasized)`;
+    const status = document.getElementById('flow-status');
+    if (status) status.textContent = emphasized.size === flowControls.length ? 'All flows emphasized.' : `${emphasized.size} of ${flowControls.length} flows emphasized. All connections remain visible.`;
+  }
+  for (const input of flowControls) input.addEventListener('change', updateFlows);
+  const overview = () => {
+    for (const input of flowControls) input.checked = true;
+    updateFlows();
+    select(`architecture:${model.architecture.id}`);
+  };
   document.getElementById('overview').addEventListener('click', overview);
   document.addEventListener('keydown', event => {
     if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;

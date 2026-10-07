@@ -59,6 +59,7 @@ test('search finds qualified IDs and types, reveals blocks, and exposes connecti
     assert.equal(document.querySelector('#outline button').getAttribute('aria-current'), 'true');
     assert.equal(document.querySelector('[data-key="component:tile.pe"]').classList.contains('related'), true);
     assert.equal(document.querySelector('[data-key="component:other"]').classList.contains('related'), false);
+    assert.equal(document.querySelector('#inspector-connections small').textContent, 'Request · tile.q → tile.pe');
     document.querySelector('#inspector-connections button').click();
     assert.equal(document.getElementById('inspector-title').textContent, 'Work Queue → Engine');
     const endpointButtons = [...document.querySelectorAll('#inspector-properties button')];
@@ -146,5 +147,124 @@ test('without JavaScript the document contains architecture details and a legend
     assert.deepEqual([...document.querySelectorAll('.legend li')].map(li => li.textContent), ['Request', 'Backpressure']);
     assert.ok(document.querySelector('noscript'));
     assert.equal(document.querySelector('.canvas-footer a').getAttribute('href'), '#inspector');
+  } finally { dom.window.close(); }
+});
+
+test('component inspector distinguishes declared dimensions, unique flow peers, and compact instances', async () => {
+  const dom = await viewer(`arch A {
+    generic source0 {} generic source1 {} generic sink {}
+    generic arb { behavior: arbitration inputs: 4 outputs: 1 policy: round_robin display: [] }
+    compute array { count: 8 throughput: 2 op/cycle }
+    source0 -> arb { type: request }
+    source0 -> arb { type: request }
+    source1 -> arb { type: request }
+    arb -> sink { type: request }
+    arb -> source0 { type: credit }
+    arb <-> array { type: data }
+  }`);
+  try {
+    const { document } = dom.window;
+    document.querySelector('[data-key="component:arb"]').dispatchEvent(new dom.window.MouseEvent('click'));
+    assert.equal(document.getElementById('inspector-topology').hidden, false);
+    assert.match(document.getElementById('inspector-properties').textContent, /Optional visible fieldsNo optional fields; structure remains visible/);
+    assert.match(document.getElementById('topology-properties').textContent, /BehaviorArbitrationDeclared inputs4Declared outputs1Policyround_robin/);
+    const rows = [...document.querySelectorAll('#topology-flows tbody tr')].map(row => [...row.children].map(cell => cell.textContent));
+    assert.deepEqual(rows, [['Data', '1', '1'], ['Request', '2', '1'], ['Credit', '0', '1']]);
+    assert.match(document.querySelector('.topology-help').textContent, /not physical ports or instances/);
+    assert.equal(document.getElementById('topology-instances').hidden, true);
+    document.querySelector('[data-key="component:array"]').dispatchEvent(new dom.window.MouseEvent('click'));
+    assert.match(document.getElementById('inspector-properties').textContent, /Instances \(compact block\)8Throughput \(per instance\)2 op\/cycle/);
+    assert.match(document.getElementById('topology-instances').textContent, /8 instances.*do not describe per-instance wiring/);
+    document.getElementById('overview').click();
+    assert.equal(document.getElementById('inspector-topology').hidden, true);
+  } finally { dom.window.close(); }
+});
+
+test('fan-in alone does not claim arbitration and unspecified dimensions remain explicit', async () => {
+  const dom = await viewer(`arch A {
+    generic a {} generic b {} generic join {} generic incomplete { inputs: 4 }
+    mux select {} generic isolated {}
+    a -> join b -> join join -> select
+  }`);
+  try {
+    const { document } = dom.window;
+    const select = id => document.querySelector(`[data-key="component:${id}"]`).dispatchEvent(new dom.window.MouseEvent('click'));
+    select('join');
+    assert.equal(document.getElementById('topology-properties').textContent, '');
+    assert.equal(document.querySelector('#topology-flows tbody').textContent, 'Untyped21');
+    assert.doesNotMatch(document.getElementById('inspector-topology').textContent, /arbitration/i);
+    select('incomplete');
+    assert.match(document.getElementById('topology-properties').textContent, /BehaviorUnspecifiedDeclared inputs4Declared outputsUnspecified/);
+    select('select');
+    assert.match(document.getElementById('topology-properties').textContent, /BehaviorSelectionDeclared inputsUnspecifiedDeclared outputs1/);
+    select('isolated');
+    assert.equal(document.getElementById('topology-flows').hidden, true);
+    assert.match(document.getElementById('topology-notes').textContent, /No connections are declared/);
+  } finally { dom.window.close(); }
+});
+
+test('HTML embeds derived topology without changing the semantic model', async () => {
+  const model = compile('arch A { generic a {} mux m { inputs: 4 } a -> m }');
+  const original = JSON.stringify(model);
+  const dom = new JSDOM(await render(model));
+  try {
+    const payload = JSON.parse(dom.window.document.getElementById('drarch-model').textContent);
+    assert.equal(payload.topology.m.declared.inputs, 4);
+    assert.deepEqual(payload.topology.m.flows, [{ type: 'untyped', inputs: 1, outputs: 0 }]);
+    assert.equal(JSON.stringify(model), original);
+    assert.equal(Object.hasOwn(model, 'topology'), false);
+  } finally { dom.window.close(); }
+});
+
+test('flow controls dim edges without hiding structure or changing topology, and overview resets them', async () => {
+  const dom = await viewer(`arch A {
+    generic a {} generic b {} generic c {}
+    a -> b { type: request } b -> c { type: data } c -> a
+  }`, { width: 360, height: 400 });
+  try {
+    const { document, Event, KeyboardEvent } = dom.window;
+    const controls = [...document.querySelectorAll('input[data-flow]')];
+    assert.deepEqual(controls.map(input => input.dataset.flow), ['data', 'request', 'untyped']);
+    assert.ok(controls.every(input => input.type === 'checkbox' && input.checked && input.labels.length === 1 && input.getAttribute('aria-controls') === 'canvas'));
+    document.querySelector('[data-key="component:a"]').dispatchEvent(new dom.window.MouseEvent('click'));
+    const beforeTopology = document.getElementById('inspector-topology').textContent;
+    const model = JSON.parse(document.getElementById('drarch-model').textContent);
+    const request = controls.find(input => input.dataset.flow === 'request');
+    request.click();
+    const dimmed = [...document.querySelectorAll('.flow-dimmed')];
+    assert.equal(dimmed.length, 1);
+    assert.equal(dimmed[0].dataset.key, `connection:${model.connections[0].id}`);
+    assert.ok(dimmed.every(element => element.getAttribute('tabindex') === '0' && !element.hidden && element.getAttribute('aria-hidden') !== 'true'));
+    assert.equal(document.querySelectorAll('[data-key^="component:"].flow-dimmed').length, 0);
+    assert.equal(document.getElementById('inspector-topology').textContent, beforeTopology);
+    assert.match(document.getElementById('flow-status').textContent, /2 of 3 flows emphasized.*All connections remain visible/);
+    assert.equal(document.getElementById('flow-summary').textContent, '(2/3 emphasized)');
+    dimmed[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    assert.equal(dimmed[0].getAttribute('aria-pressed'), 'true', 'dimmed edges remain keyboard-selectable');
+    for (const control of controls) { control.checked = false; control.dispatchEvent(new Event('change')); }
+    assert.equal(document.querySelectorAll('.flow-dimmed').length, 3);
+    request.focus();
+    request.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    assert.ok(controls.every(input => input.checked));
+    assert.equal(document.querySelectorAll('.flow-dimmed').length, 0);
+    assert.equal(document.getElementById('inspector-title').textContent, 'A');
+    request.click();
+    document.getElementById('overview').click();
+    assert.ok(controls.every(input => input.checked));
+    assert.equal(document.getElementById('flow-status').textContent, 'All flows emphasized.');
+  } finally { dom.window.close(); }
+});
+
+test('HTML legend distinguishes data from untyped flows using the rendered line styles', async () => {
+  const dom = new JSDOM(await render(compile('arch A { generic a {} generic b {} a -> b { type: data } b -> a }')));
+  try {
+    const { document } = dom.window;
+    const sample = type => document.querySelector(`.legend input[data-flow="${type}"]`).closest('label').querySelector('path');
+    assert.equal(sample('data').getAttribute('stroke'), '#343b44');
+    assert.equal(sample('data').getAttribute('stroke-width'), '1.6');
+    assert.equal(sample('data').getAttribute('stroke-dasharray'), 'none');
+    assert.equal(sample('untyped').getAttribute('stroke'), '#646c76');
+    assert.equal(sample('untyped').getAttribute('stroke-width'), '1.3');
+    assert.equal(sample('untyped').getAttribute('stroke-dasharray'), '14 6');
   } finally { dom.window.close(); }
 });

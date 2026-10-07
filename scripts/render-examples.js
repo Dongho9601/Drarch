@@ -5,8 +5,11 @@ import { escapeXML } from '../src/renderer/svg.js';
 const examples = [];
 await mkdir(new URL('../output/', import.meta.url), { recursive: true });
 for (const filename of (await readdir(new URL('../examples/', import.meta.url))).filter(f => f.endsWith('.drarch')).sort()) {
-  const model = compile(await readFile(new URL(`../examples/${filename}`, import.meta.url), 'utf8'));
+  const source = await readFile(new URL(`../examples/${filename}`, import.meta.url), 'utf8');
+  const model = compile(source);
   examples.push({ filename, model });
+  await writeFile(new URL(`../output/${filename}`, import.meta.url), source);
+  await writeFile(new URL(`../output/${filename.replace(/\.drarch$/, '.json')}`, import.meta.url), JSON.stringify(model, null, 2) + '\n');
   for (const format of ['html', 'svg']) {
     const output = filename.replace(/\.drarch$/, `.${format}`);
     await writeFile(new URL(`../output/${output}`, import.meta.url), await render(model, { format }));
@@ -22,7 +25,7 @@ const entries = examples.map(({ filename, model }) => {
   <div><h2><a href="${stem}.html">${escapeXML(model.architecture.label)}</a></h2>
   ${model.architecture.desc ? `<p>${escapeXML(model.architecture.desc)}</p>` : ''}
   <p class="meta">${model.components.length} components · ${model.groups.length} groups · ${model.connections.length} connections</p></div>
-  <nav aria-label="${escapeXML(model.architecture.label)} files"><a href="${stem}.html">Explore diagram →</a><a href="${stem}.svg">View SVG</a></nav>
+  <nav aria-label="${escapeXML(model.architecture.label)} files"><a href="${stem}.html">Explore diagram →</a><a href="${stem}.svg">View SVG</a><a href="${stem}.drarch">Architecture source</a><a href="${stem}.json">Semantic model JSON</a></nav>
 </li>`;
 }).join('\n');
 
@@ -53,7 +56,7 @@ nav { display: flex; flex-direction: column; align-items: flex-start; gap: 16px;
 footer { color: #5c6570; margin-top: 32px; font-size: 13px; line-height: 1.7; }
 @media (max-width: 600px) { body { padding: 32px 20px; } li { grid-template-columns: 1fr; gap: 16px; } nav { flex-direction: row; flex-wrap: wrap; gap: 24px; } }
 </style></head><body>
-<header><p class="brand">Drarch / Examples</p><h1>Architecture examples</h1><p>Explore ${examples.length} example architectures. Open a diagram to inspect its blocks and connections, or use an SVG in a document. Every file works offline.</p></header>
+<header><p class="brand">Drarch / Examples</p><h1>Architecture examples</h1><p>Explore ${examples.length} example architectures. Each source generates an interactive diagram, an SVG figure, and a semantic model. Review the source alongside its views. Every file works offline.</p></header>
 <main><figure><img src="queue_scheduler_pe.svg" alt="A request queue feeds a scheduler and four processing elements, with backpressure upstream and an L2 cache below the processing elements."><figcaption>Start with the <a href="queue_scheduler_pe.html">queue, scheduler, and PE example</a>. Select a block to see its properties.</figcaption></figure>
 <ol aria-label="Example architectures">${entries}</ol></main>
 <footer>In a diagram, press / to find a block, F to fit the architecture, or 0 to read at actual size.</footer>

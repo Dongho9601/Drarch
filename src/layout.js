@@ -28,7 +28,7 @@ export function toLayoutIR(model) {
   return {
     id: ROOT,
     groups: model.groups.map(g => ({ id: g.id, parent: g.parent, label: g.label, columns: g.layout?.columns ?? [] })),
-    nodes: model.components.map(c => ({ id: c.id, parent: c.parent, ...componentPresentation(c) })),
+    nodes: model.components.map(c => ({ id: c.id, parent: c.parent, ...componentPresentation(c, model.connections) })),
     edges: model.connections.map(e => ({ id: e.id, source: e.source, target: e.target, label: connectionLabel(e), feedback: feedback.has(e.properties.type?.value) })),
     columns: model.architecture.layout?.columns ?? [],
   };
@@ -39,13 +39,20 @@ export async function layout(model) {
   const containers = new Map();
   const root = { id: ROOT, children: [], edges: [], layoutOptions: { ...layoutOptions } };
   containers.set(ROOT, root);
-  const parents = new Map(), partition = new Map();
+  const parents = new Map(), partition = new Map(), groupTitles = new Map();
   for (const group of input.groups) {
     parents.set(group.id, group.parent ?? ROOT);
+    // A descriptive group heading should add lines, not stretch every child
+    // across a mostly empty canvas. Reserve its full height before routing.
+    const width = Math.min(560, Math.max(220, textWidth(group.label, 15) + 64));
+    const titleLines = wrap(group.label, width - 40, 15);
+    const headerHeight = 58 + (titleLines.length - 1) * 20;
+    const height = headerHeight + 42;
+    groupTitles.set(group.id, { titleLines, headerHeight });
     containers.set(group.id, {
       id: group.id, children: [],
-      width: Math.max(220, textWidth(group.label, 15) + 64), height: 100,
-      layoutOptions: { ...layoutOptions, 'elk.padding': '[top=58,left=28,bottom=28,right=28]', 'elk.nodeSize.constraints': 'MINIMUM_SIZE', 'elk.nodeSize.minimum': `(${Math.max(220, textWidth(group.label, 15) + 64)},100)` },
+      width, height,
+      layoutOptions: { ...layoutOptions, 'elk.padding': `[top=${headerHeight},left=28,bottom=28,right=28]`, 'elk.nodeSize.constraints': 'MINIMUM_SIZE', 'elk.nodeSize.minimum': `(${width},${height})` },
     });
   }
   for (const group of input.groups) containers.get(group.parent ?? ROOT).children.push(containers.get(group.id));
@@ -92,10 +99,10 @@ export async function layout(model) {
     const sameColumn = columnOf.has(edge.source) && columnOf.get(edge.source).id === columnOf.get(edge.target)?.id;
     const reverse = sameColumn ? columnOf.get(edge.source).order > columnOf.get(edge.target).order : pa !== undefined && pb !== undefined && pa !== pb ? pa > pb : edge.feedback;
     if (reverse) reversed.add(edge.id);
-    const lines = edge.label ? wrap(edge.label, 240, 12) : [];
+    const lines = edge.label ? wrap(edge.label, 240, 13) : [];
     return {
       id: edge.id, sources: [reverse ? edge.target : edge.source], targets: [reverse ? edge.source : edge.target],
-      labels: lines.length ? [{ text: lines.join('\n'), width: Math.max(...lines.map(l => textWidth(l, 12))) + 12, height: lines.length * 18 + 8,
+      labels: lines.length ? [{ text: lines.join('\n'), width: Math.max(...lines.map(l => textWidth(l, 13))) + 12, height: lines.length * 20 + 8,
         layoutOptions: { 'elk.edgeLabels.placement': 'CENTER' } }] : [],
     };
   };
@@ -169,7 +176,7 @@ export async function layout(model) {
       offsets.set(child.id, { x, y });
       const box = { id: child.id, x, y, width: child.width, height: child.height };
       if (columnLayouts.has(child.id)) collect(columnLayouts.get(child.id).graph, x, y);
-      else if (containers.has(child.id)) { groups.push(box); collect(child, x, y); }
+      else if (containers.has(child.id)) { groups.push({ ...box, ...groupTitles.get(child.id) }); collect(child, x, y); }
       else nodes.push(box);
     }
   }

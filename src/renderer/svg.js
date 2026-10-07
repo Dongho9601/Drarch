@@ -1,4 +1,4 @@
-import { componentPresentation, FLOW_DASHES } from './presentation.js';
+import { componentPresentation, fieldName, flowStyle, FLOW_DASHES, textWidth, wrap } from './presentation.js';
 
 export const escapeXML = text => String(text).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[c]);
 const n = value => Number(value.toFixed(2));
@@ -18,11 +18,15 @@ const styles = `
   .drarch-diagram .type { font-size: 11px; letter-spacing: 1.2px; fill: #545e69; }
   .drarch-diagram .heading { font-size: 17px; font-weight: 600; fill: #25292e; }
   .drarch-diagram .property { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; fill: #424c57; }
+  .drarch-diagram .topology { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; fill: #25292e; }
+  .drarch-diagram .figure-title { font-size: 22px; font-weight: 600; fill: #25292e; }
+  .drarch-diagram .figure-note { font-size: 13px; fill: #424c57; }
   .drarch-diagram .group-shape { fill: #fafbfc; stroke: #c1c6cc; stroke-width: 1; }
   .drarch-diagram .group-label { font-size: 15px; font-weight: 500; fill: #555e68; }
   .drarch-diagram .edge-line { fill: none; stroke: #646c76; stroke-width: 1.3; }
-  .drarch-diagram .edge-label { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; fill: #555e68; }
+  .drarch-diagram .edge-label { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; fill: #424c57; }
   .drarch-diagram .data .edge-line { stroke: #343b44; stroke-width: 1.6; }
+  .drarch-diagram .neutral .edge-line { stroke-dasharray: 14 6; }
   ${Object.entries(FLOW_DASHES).filter(([, dash]) => dash).map(([type, dash]) => `.drarch-diagram .${type} .edge-line { stroke-dasharray: ${dash}; }`).join('\n  ')}
   .drarch-diagram .edge-hit { fill: none; stroke: transparent; stroke-width: 14; }
   .drarch-diagram .related .edge-line { stroke: #215e86; stroke-width: 2; }
@@ -56,14 +60,33 @@ function shape(type, w, h) {
 }
 
 export function renderSVG(model, layout, { interactive = false } = {}) {
-  const parts = [`<svg xmlns="http://www.w3.org/2000/svg" class="drarch-diagram" width="${n(layout.width)}" height="${n(layout.height)}" viewBox="0 0 ${n(layout.width)} ${n(layout.height)}" role="${interactive ? 'group' : 'img'}" aria-label="${escapeXML(model.architecture.label)} architecture diagram">`,
+  const width = interactive ? layout.width : Math.max(640, layout.width);
+  const titleLines = interactive ? [] : wrap(model.architecture.label, width - 64, 22);
+  const header = titleLines.length ? 26 + titleLines.length * 28 : 0;
+  const flowTypes = [...Object.keys(FLOW_DASHES), 'untyped'].filter(type => model.connections.some(edge => (edge.properties.type?.value ?? 'untyped') === type));
+  const legend = [];
+  let legendX = 32, legendY = 0;
+  for (const type of flowTypes) {
+    const itemWidth = 66 + textWidth(fieldName(type), 13);
+    if (legendX + itemWidth > width - 32) { legendX = 32; legendY += 26; }
+    legend.push({ type, x: legendX, y: legendY });
+    legendX += itemWidth;
+  }
+  const noteLines = interactive ? [] : wrap('Ratios show declared inputs → outputs; ? means unspecified. Peer counts show distinct connected blocks per flow, not ports or arbitration. ×N denotes repeated instances; connections attach to the compact block.', width - 64, 13);
+  const footer = interactive ? 0 : 26 + (legend.length ? legendY + 30 : 0) + noteLines.length * 20 + 20;
+  const height = layout.height + header + footer;
+  const parts = [`<svg xmlns="http://www.w3.org/2000/svg" class="drarch-diagram" width="${n(width)}" height="${n(height)}" viewBox="0 0 ${n(width)} ${n(height)}" role="${interactive ? 'group' : 'img'}" aria-label="${escapeXML(model.architecture.label)} architecture diagram">`,
     `<title>${escapeXML(model.architecture.label)}</title>`, model.architecture.desc ? `<desc>${escapeXML(model.architecture.desc)}</desc>` : '',
     `<style>${styles}</style><defs><marker id="drarch-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 1 1 L 9 5 L 1 9" fill="none" stroke="#646c76" stroke-width="1.4" stroke-dasharray="none"/></marker><marker id="drarch-arrow-start" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 9 1 L 1 5 L 9 9" fill="none" stroke="#646c76" stroke-width="1.4" stroke-dasharray="none"/></marker></defs>`,
     `<rect width="100%" height="100%" fill="white"/>`];
+  titleLines.forEach((line, i) => parts.push(`<text class="figure-title" x="32" y="${38 + i * 28}">${escapeXML(line)}</text>`));
+  parts.push(`<g class="architecture-geometry" transform="translate(0 ${header})">`);
   const groupMap = new Map(model.groups.map(g => [g.id, g]));
   for (const box of layout.groups) {
     const group = groupMap.get(box.id), d = details(group, 'group', interactive);
-    parts.push(`<g${d.attrs}>${d.title}<rect class="group-shape" x="${n(box.x)}" y="${n(box.y)}" width="${n(box.width)}" height="${n(box.height)}"/><text class="group-label" x="${n(box.x + 20)}" y="${n(box.y + 30)}">${escapeXML(group.label)}</text></g>`);
+    parts.push(`<g${d.attrs}>${d.title}<rect class="group-shape" x="${n(box.x)}" y="${n(box.y)}" width="${n(box.width)}" height="${n(box.height)}"/>`);
+    (box.titleLines ?? [group.label]).forEach((line, i) => parts.push(`<text class="group-label" x="${n(box.x + 20)}" y="${n(box.y + 30 + i * 20)}">${escapeXML(line)}</text>`));
+    parts.push('</g>');
   }
   const edgeMap = new Map(model.connections.map(e => [e.id, e]));
   for (const edge of layout.edges) {
@@ -76,18 +99,28 @@ export function renderSVG(model, layout, { interactive = false } = {}) {
     });
     for (const label of edge.labels) {
       parts.push(`<rect x="${n(label.x)}" y="${n(label.y)}" width="${n(label.width)}" height="${n(label.height)}" fill="white"/>`);
-      label.lines.forEach((line, i) => parts.push(`<text class="edge-label" x="${n(label.x + 6)}" y="${n(label.y + 16 + i * 18)}">${escapeXML(line)}</text>`));
+      label.lines.forEach((line, i) => parts.push(`<text class="edge-label" x="${n(label.x + 6)}" y="${n(label.y + 17 + i * 20)}">${escapeXML(line)}</text>`));
     }
     parts.push('</g>');
   }
   const componentMap = new Map(model.components.map(c => [c.id, c]));
   for (const box of layout.nodes) {
-    const component = componentMap.get(box.id), p = componentPresentation(component), d = details(component, 'component', interactive);
+    const component = componentMap.get(box.id), p = componentPresentation(component, model.connections), d = details(component, 'component', interactive);
     const typeY = component.type === 'mux' || component.type === 'demux' ? 30 : 23;
     parts.push(`<g class="component-${escapeXML(component.type)}" transform="translate(${n(box.x)} ${n(box.y)})"${d.attrs}>${d.title}${shape(component.type, n(box.width), n(box.height))}<text class="type" x="24" y="${typeY}">${component.type.toUpperCase()}</text>`);
     p.titleLines.forEach((line, i) => parts.push(`<text class="heading" x="24" y="${48 + i * 22}">${escapeXML(line)}</text>`));
-    p.propertyLines.forEach((line, i) => parts.push(`<text class="property" x="24" y="${48 + p.titleLines.length * 22 + i * 22}">${escapeXML(line)}</text>`));
+    p.topologyLines.forEach((line, i) => parts.push(`<text class="topology" x="24" y="${48 + p.titleLines.length * 22 + i * 22}">${escapeXML(line)}</text>`));
+    p.propertyLines.forEach((line, i) => parts.push(`<text class="property" x="24" y="${48 + (p.titleLines.length + p.topologyLines.length) * 22 + i * 22}">${escapeXML(line)}</text>`));
     parts.push('</g>');
+  }
+  parts.push('</g>');
+  if (!interactive) {
+    const y = header + layout.height + 20;
+    for (const item of legend) {
+      const style = flowStyle(item.type);
+      parts.push(`<g class="figure-legend"><path d="M ${item.x} ${y + item.y} h 36" fill="none" stroke="${style.stroke}" stroke-width="${style.width}" stroke-dasharray="${style.dash}" marker-end="url(#drarch-arrow)"/><text class="figure-note" x="${item.x + 46}" y="${y + item.y + 4}">${fieldName(item.type)}</text></g>`);
+    }
+    noteLines.forEach((line, i) => parts.push(`<text class="figure-note" x="32" y="${y + (legend.length ? legendY + 30 : 0) + i * 20}">${escapeXML(line)}</text>`));
   }
   parts.push('</svg>');
   return parts.join('\n');

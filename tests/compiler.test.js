@@ -9,9 +9,9 @@ function rejects(body, code, contains) {
   assert.throws(() => compile(`arch Test { ${body} }`), error => error instanceof DiagnosticError && error.diagnostics.some(d => d.code === code && (!contains || d.message.includes(contains))));
 }
 
-test('all six examples compile and survive canonical formatting', async () => {
+test('all examples compile and survive canonical formatting', async () => {
   const files = (await readdir(exampleDir)).filter(f => f.endsWith('.drarch'));
-  assert.equal(files.length, 6);
+  assert.equal(files.length, 8);
   for (const file of files) {
     const source = await readFile(new URL(file, exampleDir), 'utf8');
     const formatted = format(source);

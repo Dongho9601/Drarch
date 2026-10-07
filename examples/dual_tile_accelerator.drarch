@@ -1,0 +1,638 @@
+arch DualTileAccelerator {
+    label: "Dual-Tile Tensor Accelerator"
+    desc: "An illustrative accelerator with independent tensor/vector tiles, explicit command dependencies, DMA, shared memory, and completion feedback. Capacities, rates, and latencies are example design parameters, not measured performance. Connections describe logical relationships; memory arbitration and instruction-level sequencing are abstracted."
+
+    group frontend {
+        label: "Command Frontend"
+        desc: "Accepts host descriptors, decodes operations, and releases work when dependencies are satisfied."
+
+        queue submission {
+            label: "Host Submission"
+            desc: "Holds host descriptors for compute work and DMA transfers."
+            depth: 128 entries
+            input_bw: 2 req/cycle
+            output_bw: 2 req/cycle
+            display: [depth]
+        }
+
+        generic decode {
+            label: "Command Decode"
+            desc: "Decodes descriptors into tile commands or DMA commands and records prerequisite event IDs."
+            width: 2
+            latency: 2 cycle
+            display: [width, latency]
+            opcodes: [tensor, vector, load, store, fence]
+        }
+
+        generic scoreboard {
+            label: "Dependency Scoreboard"
+            desc: "Tracks outstanding commands. A command becomes eligible when its prerequisite events complete and its destination can accept work. Completion feedback releases dependent commands."
+            capacity: 8 KiB
+            policy: oldest_ready
+            display: [pending_commands]
+            pending_commands: 256
+        }
+
+        demux dispatch {
+            label: "Destination Dispatch"
+            desc: "Routes an eligible descriptor to tile 0, tile 1, or the DMA engine. It does not arbitrate memory traffic."
+            width: 128 bit
+            outputs: 3
+            display: [outputs]
+        }
+
+        submission -> decode {
+            type: request
+            display: []
+        }
+
+        decode -> scoreboard {
+            type: request
+            display: []
+        }
+
+        scoreboard -> dispatch {
+            type: request
+            rate: 2 req/cycle
+            display: [rate]
+        }
+
+        scoreboard -> submission {
+            label: "table full"
+            desc: "Stops descriptor consumption when the pending-command table is full."
+            type: backpressure
+        }
+
+        layout {
+            columns: [[submission, decode, scoreboard, dispatch]]
+        }
+    }
+
+    group tile0 {
+        label: "Tile 0"
+        desc: "An independently scheduled tile. Tensor and vector units share a local operand buffer and scratchpad; the writeback mux accepts one producer each cycle."
+
+        queue work {
+            label: "Work Queue"
+            desc: "Buffers tile commands after their global dependencies are satisfied."
+            depth: 32 entries
+            display: [depth]
+        }
+
+        generic sched {
+            label: "Tile Scheduler"
+            desc: "Issues work when operands and execution resources are ready. Reserves a completion slot before issuing each command and arbitrates the writeback mux."
+            width: 2
+            policy: oldest_ready
+            display: [width]
+        }
+
+        register context {
+            label: "Context Registers"
+            desc: "Stores scratchpad addresses, loop bounds, and active command IDs maintained by the scheduler."
+            count: 32
+            width: 64 bit
+        }
+
+        memory scratch {
+            label: "Local Scratchpad"
+            desc: "Software-managed SRAM containing operands and results. Logical connections share the listed directional bandwidths. DMA moves data between this scratchpad and shared memory."
+            kind: sram
+            capacity: 2 MiB
+            read_bw: 128 B/cycle
+            write_bw: 64 B/cycle
+            latency: 3 cycle
+            display: [capacity, latency]
+        }
+
+        group datapath {
+            label: "Execution Datapath"
+            desc: "Stages operands, executes tensor or vector work, and selects one result producer for writeback."
+
+            buffer operands {
+                label: "Operand Buffer"
+                desc: "Decouples scratchpad reads from execution. Tensor and vector consumers share its read bandwidth."
+                capacity: 32 KiB
+                read_bw: 128 B/cycle
+                write_bw: 128 B/cycle
+                display: [capacity]
+            }
+
+            compute tensor {
+                label: "Tensor PE"
+                desc: "Sixteen processing elements. Throughput is per element; this diagram does not calculate achieved array throughput."
+                count: 16
+                throughput: 64 op/cycle
+                latency: 8 cycle
+                display: [count, throughput]
+            }
+
+            compute vector {
+                label: "Vector Lane"
+                desc: "Eight lanes for elementwise operations and reductions. Throughput is per lane."
+                count: 8
+                throughput: 2 op/cycle
+                latency: 4 cycle
+                display: [count, throughput]
+            }
+
+            mux writeback {
+                label: "Writeback Select"
+                desc: "Selects a tensor or vector result under scheduler control. A completion token is emitted only after the result is accepted by the scratchpad."
+                width: 512 bit
+                inputs: 2
+                display: [inputs]
+            }
+
+            operands -> tensor {
+                type: data
+                display: []
+            }
+
+            operands -> vector {
+                type: data
+                display: []
+            }
+
+            tensor -> writeback {
+                type: data
+                display: []
+            }
+
+            vector -> writeback {
+                type: data
+                display: []
+            }
+
+            layout {
+                columns: [operands, [tensor, vector], writeback]
+            }
+        }
+
+        queue done {
+            label: "Completion Queue"
+            desc: "Buffers completed command IDs after local writeback. The scheduler reserves slots before issuing work."
+            depth: 32 entries
+            display: [depth]
+        }
+
+        work -> sched {
+            type: request
+            display: []
+        }
+
+        sched -> work {
+            label: "stall"
+            type: backpressure
+        }
+
+        sched <-> context {
+            type: control
+            display: []
+        }
+
+        sched -> datapath.tensor {
+            type: control
+            display: []
+        }
+
+        sched -> datapath.vector {
+            type: control
+            display: []
+        }
+
+        sched -> datapath.writeback {
+            type: control
+            display: []
+        }
+
+        scratch -> datapath.operands {
+            type: data
+            bandwidth: 128 B/cycle
+            display: [bandwidth]
+        }
+
+        datapath.writeback -> scratch {
+            type: data
+            bandwidth: 64 B/cycle
+            display: [bandwidth]
+        }
+
+        datapath.writeback -> done {
+            label: "complete"
+            type: response
+        }
+
+        done -> sched {
+            label: "slot credit"
+            desc: "Returns one completion-slot credit when an entry leaves the completion queue."
+            type: credit
+        }
+
+        layout {
+            columns: [work, [sched, context, scratch], datapath, done]
+        }
+    }
+
+    group tile1 {
+        label: "Tile 1"
+        desc: "A second tile with private scheduling state, execution resources, and scratchpad. Tile 0 and tile 1 contend for the shared memory fabric."
+
+        queue work {
+            label: "Work Queue"
+            desc: "Buffers tile commands after their global dependencies are satisfied."
+            depth: 32 entries
+            display: [depth]
+        }
+
+        generic sched {
+            label: "Tile Scheduler"
+            desc: "Issues work when operands and execution resources are ready. Reserves a completion slot before issuing each command and arbitrates the writeback mux."
+            width: 2
+            policy: oldest_ready
+            display: [width]
+        }
+
+        register context {
+            label: "Context Registers"
+            desc: "Stores scratchpad addresses, loop bounds, and active command IDs maintained by the scheduler."
+            count: 32
+            width: 64 bit
+        }
+
+        memory scratch {
+            label: "Local Scratchpad"
+            desc: "Software-managed SRAM containing operands and results. Logical connections share the listed directional bandwidths. DMA moves data between this scratchpad and shared memory."
+            kind: sram
+            capacity: 2 MiB
+            read_bw: 128 B/cycle
+            write_bw: 64 B/cycle
+            latency: 3 cycle
+            display: [capacity, latency]
+        }
+
+        group datapath {
+            label: "Execution Datapath"
+            desc: "Stages operands, executes tensor or vector work, and selects one result producer for writeback."
+
+            buffer operands {
+                label: "Operand Buffer"
+                desc: "Decouples scratchpad reads from execution. Tensor and vector consumers share its read bandwidth."
+                capacity: 32 KiB
+                read_bw: 128 B/cycle
+                write_bw: 128 B/cycle
+                display: [capacity]
+            }
+
+            compute tensor {
+                label: "Tensor PE"
+                desc: "Sixteen processing elements with throughput specified per element."
+                count: 16
+                throughput: 64 op/cycle
+                latency: 8 cycle
+                display: [count, throughput]
+            }
+
+            compute vector {
+                label: "Vector Lane"
+                desc: "Eight lanes for elementwise operations and reductions, with throughput specified per lane."
+                count: 8
+                throughput: 2 op/cycle
+                latency: 4 cycle
+                display: [count, throughput]
+            }
+
+            mux writeback {
+                label: "Writeback Select"
+                desc: "Selects a tensor or vector result under scheduler control. A completion token is emitted only after the result is accepted by the scratchpad."
+                width: 512 bit
+                inputs: 2
+                display: [inputs]
+            }
+
+            operands -> tensor {
+                type: data
+                display: []
+            }
+
+            operands -> vector {
+                type: data
+                display: []
+            }
+
+            tensor -> writeback {
+                type: data
+                display: []
+            }
+
+            vector -> writeback {
+                type: data
+                display: []
+            }
+
+            layout {
+                columns: [operands, [tensor, vector], writeback]
+            }
+        }
+
+        queue done {
+            label: "Completion Queue"
+            desc: "Buffers completed command IDs after local writeback. The scheduler reserves slots before issuing work."
+            depth: 32 entries
+            display: [depth]
+        }
+
+        work -> sched {
+            type: request
+            display: []
+        }
+
+        sched -> work {
+            label: "stall"
+            type: backpressure
+        }
+
+        sched <-> context {
+            type: control
+            display: []
+        }
+
+        sched -> datapath.tensor {
+            type: control
+            display: []
+        }
+
+        sched -> datapath.vector {
+            type: control
+            display: []
+        }
+
+        sched -> datapath.writeback {
+            type: control
+            display: []
+        }
+
+        scratch -> datapath.operands {
+            type: data
+            bandwidth: 128 B/cycle
+            display: [bandwidth]
+        }
+
+        datapath.writeback -> scratch {
+            type: data
+            bandwidth: 64 B/cycle
+            display: [bandwidth]
+        }
+
+        datapath.writeback -> done {
+            label: "complete"
+            type: response
+        }
+
+        done -> sched {
+            label: "slot credit"
+            desc: "Returns one completion-slot credit when an entry leaves the completion queue."
+            type: credit
+        }
+
+        layout {
+            columns: [work, [sched, context, scratch], datapath, done]
+        }
+    }
+
+    group memory_system {
+        label: "Shared Memory System"
+        desc: "DMA drives transfers through a shared fabric. A shared last-level cache serves two external high-bandwidth-memory channels. Per-cycle and per-second bandwidths remain separate quantities."
+
+        generic dma {
+            label: "DMA Engine"
+            desc: "Direct memory access engine. Executes load/store descriptors by transferring payloads between tile scratchpads and shared memory through the fabric. Reports completion after destination writes are acknowledged."
+            bandwidth: 64 B/cycle
+            display: [outstanding]
+            outstanding: 64
+        }
+
+        crossbar fabric {
+            label: "Memory Fabric"
+            desc: "Connects four bidirectional participants: the DMA engine, both tile scratchpads, and the shared L2. The bandwidth is the aggregate fabric budget, not a per-connection guarantee."
+            width: 512 bit
+            inputs: 4
+            outputs: 4
+            bandwidth: 128 B/cycle
+            latency: 2 cycle
+            display: [inputs, outputs, bandwidth]
+        }
+
+        memory l2 {
+            label: "Shared L2"
+            desc: "A shared cache with 64-byte lines. Misses and writebacks are striped across two memory channels. Latency describes an illustrative cache hit."
+            kind: cache
+            capacity: 16 MiB
+            bandwidth: 128 B/cycle
+            latency: 16 cycle
+            line_size: 64 B
+            display: [capacity, latency]
+        }
+
+        group channels {
+            label: "External Memory Channels"
+            desc: "Two independently controlled HBM channels. The controllers abstract request scheduling and refresh."
+
+            generic mc0 {
+                label: "Channel 0 Controller"
+                desc: "Schedules L2 misses and writebacks mapped to HBM channel 0."
+                policy: oldest_ready
+                display: [outstanding]
+                outstanding: 128
+            }
+
+            generic mc1 {
+                label: "Channel 1 Controller"
+                desc: "Schedules L2 misses and writebacks mapped to HBM channel 1."
+                policy: oldest_ready
+                display: [outstanding]
+                outstanding: 128
+            }
+
+            memory hbm0 {
+                label: "HBM Channel 0"
+                desc: "Illustrative high-bandwidth memory capacity and peak transfer rate. Actual latency depends on the access pattern and contention."
+                kind: hbm
+                capacity: 8 GiB
+                bandwidth: 256 GB/s
+                latency: 100 ns
+            }
+
+            memory hbm1 {
+                label: "HBM Channel 1"
+                desc: "A second high-bandwidth memory channel with the same illustrative parameters."
+                kind: hbm
+                capacity: 8 GiB
+                bandwidth: 256 GB/s
+                latency: 100 ns
+            }
+
+            mc0 <-> hbm0 {
+                type: data
+                display: []
+            }
+
+            mc1 <-> hbm1 {
+                type: data
+                display: []
+            }
+
+            layout {
+                columns: [[mc0, mc1], [hbm0, hbm1]]
+            }
+        }
+
+        dma <-> fabric {
+            type: data
+            bandwidth: 64 B/cycle
+            display: [bandwidth]
+        }
+
+        fabric <-> l2 {
+            type: data
+            bandwidth: 128 B/cycle
+            display: [bandwidth]
+        }
+
+        l2 <-> channels.mc0 {
+            type: data
+            display: []
+        }
+
+        l2 <-> channels.mc1 {
+            type: data
+            display: []
+        }
+
+        layout {
+            columns: [dma, fabric, l2, channels]
+        }
+    }
+
+    group retirement {
+        label: "Completion and Retirement"
+        desc: "Merges completion events, releases global dependencies, and exposes completed command IDs to the host."
+
+        generic merge {
+            label: "Completion Arbiter"
+            desc: "Arbitrates tile and DMA completion events. Accepts an event only when the host completion queue has room, then signals the corresponding dependency as satisfied."
+            behavior: arbitration
+            width: 2
+            inputs: 3
+            outputs: 1
+            policy: round_robin
+            display: [width]
+        }
+
+        queue host_done {
+            label: "Host Completion"
+            desc: "Holds completed command IDs until the host consumes them. Host consumption is outside the diagram."
+            depth: 128 entries
+            output_bw: 2 req/cycle
+            display: [depth]
+        }
+
+        merge -> host_done {
+            type: response
+            display: []
+        }
+
+        host_done -> merge {
+            label: "full"
+            type: backpressure
+        }
+
+        layout {
+            columns: [[merge, host_done]]
+        }
+    }
+
+    frontend.dispatch -> tile0.work {
+        label: "tile 0 work"
+        type: request
+    }
+
+    frontend.dispatch -> tile1.work {
+        label: "tile 1 work"
+        type: request
+    }
+
+    frontend.dispatch -> memory_system.dma {
+        label: "DMA descriptor"
+        type: request
+    }
+
+    tile0.work -> frontend.scoreboard {
+        type: backpressure
+        display: []
+    }
+
+    tile1.work -> frontend.scoreboard {
+        type: backpressure
+        display: []
+    }
+
+    memory_system.dma -> frontend.scoreboard {
+        type: backpressure
+        display: []
+    }
+
+    tile0.scratch <-> memory_system.fabric {
+        desc: "DMA payload reads and writes between tile 0's scratchpad and the shared fabric. Transfer scheduling is abstracted by the DMA engine."
+        type: data
+        bandwidth: 64 B/cycle
+        display: [bandwidth]
+    }
+
+    tile1.scratch <-> memory_system.fabric {
+        desc: "DMA payload reads and writes between tile 1's scratchpad and the shared fabric. Both tiles share the DMA and fabric budgets."
+        type: data
+        bandwidth: 64 B/cycle
+        display: [bandwidth]
+    }
+
+    tile0.done -> retirement.merge {
+        type: response
+        display: []
+    }
+
+    tile1.done -> retirement.merge {
+        type: response
+        display: []
+    }
+
+    memory_system.dma -> retirement.merge {
+        label: "DMA complete"
+        type: response
+    }
+
+    retirement.merge -> tile0.done {
+        type: backpressure
+        display: []
+    }
+
+    retirement.merge -> tile1.done {
+        type: backpressure
+        display: []
+    }
+
+    retirement.merge -> memory_system.dma {
+        type: backpressure
+        display: []
+    }
+
+    retirement.merge -> frontend.scoreboard {
+        label: "dependency resolved"
+        desc: "Marks a command's completion event as satisfied so the scoreboard can release dependent compute, DMA, or fence commands."
+        type: dependency
+    }
+
+    layout {
+        columns: [frontend, [tile0, tile1, memory_system], retirement]
+    }
+}

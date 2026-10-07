@@ -1,5 +1,5 @@
 import { DiagnosticError } from './diagnostics.js';
-import { SCHEMAS, COMMON, EDGE_FIELDS, FLOW_TYPES, compareProperties } from './schema.js';
+import { SCHEMAS, COMMON, EDGE_FIELDS, FLOW_TYPES, BEHAVIORS, compareProperties } from './schema.js';
 import { RULES, lowerValue, quantityOf } from './units.js';
 
 function distance(a, b) {
@@ -80,6 +80,24 @@ export function analyze(ast) {
     for (const entry of node.entries) if (entry.kind !== 'property') report('DRARCH206', 'Only properties are allowed inside a component or connection.', entry.loc, 'Declare groups and connections inside an architecture or group.');
   }
 
+  function checkBehavior(node, props) {
+    const behavior = props.behavior;
+    if (!behavior) return;
+    if (!['string', 'symbol'].includes(behavior.kind) || !BEHAVIORS.includes(behavior.value)) {
+      report('DRARCH205', 'Unknown component behavior.', behavior.loc, `Use ${BEHAVIORS.join(', ')}.`);
+      return;
+    }
+    for (const name of ['inputs', 'outputs']) {
+      if (!props[name]) report('DRARCH205', `Behavior \`${behavior.value}\` requires \`${name}\`.`, node.loc, 'Declare positive integer input and output counts.');
+    }
+    const singleSide = ['arbitration', 'selection', 'merge'].includes(behavior.value) ? 'outputs'
+      : ['dispatch', 'broadcast'].includes(behavior.value) ? 'inputs' : null;
+    const count = props[singleSide];
+    if (count?.kind === 'number' && Number(count.value) !== 1) {
+      report('DRARCH205', `Behavior \`${behavior.value}\` requires \`${singleSide}: 1\`.`, count.loc);
+    }
+  }
+
   const rootProps = properties(ast, [], false, ['label', 'desc']);
   const architecture = { id: ast.id, label: rootProps.label, desc: rootProps.desc, loc: ast.loc, layout: null };
   function visit(node, parent, owner) {
@@ -96,6 +114,7 @@ export function analyze(ast) {
         } else if (Object.hasOwn(SCHEMAS, entry.type)) {
           requirePropertiesOnly(entry);
           const p = properties(entry, SCHEMAS[entry.type], entry.type === 'generic');
+          if (entry.type === 'generic') checkBehavior(entry, p.properties);
           const component = { id, name: entry.id, type: entry.type, parent, ...p, loc: entry.loc };
           if (entry.type === 'compute' && p.properties.throughput) component.throughputScope = 'per_instance';
           components.push(component); symbols.set(id, { kind: 'component', ...component });

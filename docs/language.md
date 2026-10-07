@@ -38,7 +38,7 @@ Strings support escapes such as `\n`, `\t`, `\"`, and `\uXXXX`. Literal line bre
 
 ## Properties
 
-All architectural properties are optional. Each primitive accepts exactly the fields below in addition to the presentation fields `label`, `desc`, and `display`.
+Architectural properties are optional unless a declared behavior requires them. Each primitive accepts exactly the fields below in addition to the presentation fields `label`, `desc`, and `display`.
 
 | Primitive | Architectural fields |
 | --- | --- |
@@ -54,7 +54,39 @@ All architectural properties are optional. Each primitive accepts exactly the fi
 
 `label` and `desc` must be quoted strings. The default label is the local component or group identifier; the default description is empty. Architectures and groups accept `label` and `desc` but no architectural properties. Duplicate property names are errors.
 
-`kind` and `policy` accept a string or identifier. Custom fields on `generic` may contain any supported value, including lists and quantities with custom units. The compiler preserves those values without assigning them architectural meaning.
+`kind` and `policy` accept a string or identifier. `behavior` on `generic` accepts the values below. Other custom fields on `generic` may contain any supported value, including lists and quantities with custom units. The compiler preserves custom values without assigning them architectural meaning.
+
+### Behavior and topology
+
+An architecture figure must show where a path selects, arbitrates, splits, or combines work. Use `behavior`, `inputs`, and `outputs` on a `generic` block to state the intended function. An explicit behavior requires both counts as positive unitless integers.
+
+| Behavior | Meaning | Required shape |
+| --- | --- | --- |
+| `arbitration` | Chooses one competing input for the output; `policy` names the selection rule | N → 1 |
+| `selection` | Selects one input for an output under a selection control | N → 1 |
+| `merge` | Combines input streams into one output; describe ordering and combining rules | N → 1 |
+| `dispatch` | Sends an input item to a selected output | 1 → N |
+| `broadcast` | Sends an input item to all outputs; describe acceptance across receivers | 1 → N |
+| `routing` | Routes between inputs and outputs; describe route selection and contention | N → M |
+
+These are architectural declarations, not executable state machines. N and M may be one. A mux intrinsically declares selection with one output, a demux dispatch with one input, and a crossbar routing. Their other counts remain optional; the figure prints `?` when a count is unspecified. An arbitration declaration with no policy prints `Policy: unspecified`. A generic block with counts but no behavior prints `Declared I/O` without claiming an operation.
+
+```text
+generic arb {
+    behavior: arbitration
+    inputs: 3
+    outputs: 1
+    policy: round_robin
+    desc: "The winner retains its request until the output accepts it. Priority rotates after acceptance."
+    display: []
+}
+```
+
+The figure always shows the declared behavior and ratio, even with `display: []`. A separate arbiter can drive a mux with a control flow; if one block includes both arbitration and payload selection, state that in its description. The compiler does not infer readiness, ordering, fairness, broadcast atomicity, or per-cycle capacity from a behavior name or policy string. State those conditions and ownership changes in `desc`.
+
+The renderer also derives **peer counts** from the connections. For each flow type, the figure lists input and output peers when either count exceeds one. A peer is a distinct component ID, including its group-qualified path. Parallel connections of the same type to the same block count once. Bidirectional connections contribute once in each direction; a self-loop counts the component itself in both directions. Connections with no flow type stay `untyped`. Different flow types are counted separately, so data and backpressure do not become one combined ratio.
+
+Peer counts describe graph connectivity, not physical ports, runtime arbitration, or internal wiring of a compact array. Declared input/output counts and connected peer counts can differ. The compiler does not check one against the other because the language connects whole blocks, not individual ports. The HTML inspector shows both independently. The JavaScript API exports `componentTopology(component, connections)` for the same derived information without modifying the semantic model.
 
 ### Numeric values and units
 
@@ -79,7 +111,7 @@ The model distinguishes cycle-based and time-based quantities. It never converts
 
 ### Visible properties
 
-The README's default display table is implemented. A supplied `display` list replaces the default, in the listed order. Each entry must be a distinct architectural property that is present on the same element. `display: []` produces a label-only block. Counts appear once in the heading when visible, such as `PE ×4`; hidden counts remain in the inspector.
+The README's default display table is implemented. A supplied `display` list replaces the optional fields, in the listed order. Each entry must be a distinct architectural property present on the same element. `display: []` suppresses optional properties while retaining structural information: repeated-instance counts greater than one, declared behavior and input/output ratios, its policy when supplied, and per-flow branching peer counts. Instance counts appear once in the heading, such as `PE ×4`. A count of one may be suppressed. Other hidden properties remain in the inspector.
 
 ```text
 memory l2 {
@@ -112,7 +144,7 @@ Without hints, ELK infers order from connections. Returning flow types (`respons
 
 The adapter uses ELK partitions for column order. For a nested list consisting entirely of components, a separate downward ELK layout arranges its contents; the outer layout routes connections through generated attachment points. These temporary containers, ports, and ordering edges do not enter the semantic model or the exported diagram. Lists containing groups use soft partition and model-order preferences; exact vertical stacking of such groups is not guaranteed in this version.
 
-ELK still controls spacing, sizing, and routing. No source coordinates or manual canvas editing are supported. Dense cyclic graphs and complex group arrangements may need different grouping or hints. Long labels wrap using conservative font measurements; system font differences can affect their appearance.
+ELK still controls spacing, sizing, and routing. No source coordinates or manual canvas editing are supported. Dense cyclic graphs and complex group arrangements may need different grouping or hints. Component, connection, and group labels wrap using conservative font measurements; long group titles reserve additional header space rather than stretching the entire diagram. System font differences can affect their appearance.
 
 ## Formatting and diagnostics
 
@@ -136,8 +168,8 @@ Syntax diagnostics stop at the first parse error. Semantic validation collects m
 
 `drarch inspect --json` outputs versioned JSON containing architecture metadata and arrays of groups, components, and connections. Components have qualified stable IDs, explicit parents, typed values, descriptions, display preferences, and source locations. Numbers are strings so `1.700` survives inspection and formatting unchanged. Parallel connections have endpoint-based IDs with an occurrence suffix. Coordinates exist only in the separate Layout IR.
 
-HTML contains inline SVG, styles, the semantic model, and viewer code. It makes no external requests and requires no server. Search finds components and groups by label, qualified ID, or type. Selecting a search result brings it into view; selecting a component highlights its connected paths. The inspector links to parent groups and connection endpoints, and the flow legend shows only the types used in the diagram.
+HTML contains inline SVG, styles, the semantic model with a derived topology map, and viewer code. It makes no external requests and requires no server. Search finds components and groups by label, qualified ID, or type. Selecting a search result brings it into view; selecting a component highlights its connected paths. The inspector links to parent groups and connection endpoints and separates declared behavior from connected peer counts. The Flows controls show only used types and dim unchecked flows without removing blocks, structural annotations, or keyboard access. Overview restores every flow.
 
 Fit sizes the entire diagram to the canvas width and height. Actual size restores 100% zoom. Keyboard controls are `/` for search, `F` for fit, `0` for actual size, and `+` / `-` for zoom. Tab, Enter, and Space focus and select elements. Escape clears an active search first, then returns to architecture details. Zoom and selection do not recompute layout. On small screens, View details links to the inspector below the canvas. Without JavaScript, the diagram and architecture metadata remain visible. SVG exports contain no scripts and can be used directly in documents.
 
-The implementation deliberately omits simulation, utilization estimates, unit conversion, ports in the source language, a browser source editor, and manual positioning.
+Static SVG exports include a visible architecture title, a legend for the flows present, and a note distinguishing declared ratios from peer counts. They include no scripts. The implementation deliberately omits simulation, utilization estimates, unit conversion, individually named ports in the source language, a browser source editor, and manual positioning.

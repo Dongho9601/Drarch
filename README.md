@@ -6,13 +6,13 @@ Describe queues, compute units, memories, and their connections in a `.drarch` f
 
 The goal is to help a computer architect externalize a correct mental model in minutes, then refine it through small, reviewable source changes.
 
-[Quick start](#quick-start) · [Using the viewer](#using-the-viewer) · [Examples](#examples) · [Language reference](docs/language.md) · [Design principles](#design-principles)
+[Quick start](#quick-start) · [Architecture source of truth](#architecture-source-of-truth) · [Using the viewer](#using-the-viewer) · [Examples](#examples) · [Language reference](docs/language.md)
 
 ![A request queue feeds a scheduler and four processing elements; backpressure returns to the queue and an L2 cache sits below the processing elements.](docs/preview.svg)
 
 The [queue / scheduler / PE source](examples/queue_scheduler_pe.drarch) produces this diagram. The HTML viewer also provides search, linked properties, and connection highlighting.
 
-**Status:** The first implementation is available. Drarch uses JavaScript on Node.js 20+ and the [ELK layout engine](https://github.com/kieler/elkjs). It includes the compiler, typed validation, canonical formatter, JSON inspection, automatic layout, standalone HTML viewer, static SVG export, and six example architectures. The specification below continues to describe the product goals; the [language reference](docs/language.md) records the implemented schemas, syntax, and current limits.
+**Status:** The implementation includes typed validation, explicit routing behavior, canonical formatting, JSON inspection, automatic layout, an offline HTML viewer, static SVG export, and eight example architectures. It runs on Node.js 20+ with the [ELK layout engine](https://github.com/kieler/elkjs). The [language reference](docs/language.md) records implemented syntax and limits; the later specification sections describe the broader product goals.
 
 ## Quick start
 
@@ -37,22 +37,60 @@ node bin/drarch.js fmt examples/npu.drarch --check
 # Export a static figure.
 node bin/drarch.js render examples/npu.drarch --format svg -o npu.svg
 
-# Run tests and render all six examples into output/.
+# Run tests and render all examples into output/.
 npm test
 npm run examples
 ```
 
-Open `output/index.html` to browse all generated examples and their SVG exports.
+Open `output/index.html` to browse the generated examples, SVG exports, architecture sources, and semantic model JSON.
+
+For a larger example, render [the dual-tile accelerator](examples/dual_tile_accelerator.drarch):
+
+```bash
+node bin/drarch.js render examples/dual_tile_accelerator.drarch -o output/dual_tile_accelerator.html
+```
+
+Its 31 blocks and 55 connections span eight groups: a command frontend, two tiles with nested tensor/vector datapaths, shared memory with two HBM channels, and completion handling. It uses every primitive and flow type, including backpressure, completion-slot credits, and dependency feedback. Select blocks and connections in the HTML viewer for descriptions and hidden properties; zoom in to read individual subsystems. The parameters illustrate a design and do not predict performance.
 
 To expose the shorter `drarch` command while developing, run `npm link` from this checkout. No build step is required. For a clean install from the lockfile, use `npm ci`; a runtime-only install can use `npm ci --omit=dev`.
 
-Tests cover compiler diagnostics, formatting round trips, CLI behavior, deterministic layout, group containment, edge endpoints, SVG rasterization, and viewer events in a DOM test environment. Browser compatibility and dense-diagram visual quality still need broader testing. Column lists containing groups remain soft preferences; component-only lists support vertical stacking, including a connected memory below a compute array.
+Tests cover compiler diagnostics, formatting round trips, behavior declarations, topology visibility, deterministic layout, label and route clearance, SVG rasterization, CLI behavior, and viewer events. Column lists containing groups remain soft preferences; component-only lists support vertical stacking. Dense diagrams require zoom or search to read individual subsystems.
+
+## Architecture source of truth
+
+Keep the `.drarch` file as the reviewed architecture source. Generate figures and JSON from that file so the views agree on block identities, hierarchy, connections, behavior, and units. `check` validates the description; it does not prove that a hardware implementation matches it or simulate timing.
+
+A canonical one-input, one-output path can use a short label or `display: []`. A many-to-one operation needs a visible architectural contract:
+
+```text
+generic arb {
+    label: "Request Arbiter"
+    desc: "Selects one requester. Priority advances only when the receiver accepts its request."
+    behavior: arbitration
+    inputs: 2
+    outputs: 1
+    policy: round_robin
+    display: []
+}
+```
+
+The figure still shows **Arbitration: 2 → 1** and **Policy: round robin**. Selection, dispatch, broadcast, routing, and merge are also supported. Muxes, demuxes, and crossbars show their intrinsic input/output ratios; omitted dimensions appear as `?`. Instance counts greater than one remain visible as `×N`.
+
+When several blocks connect to a component in one flow, the figure also shows that flow's input/output **peer counts**. These count distinct connected blocks. They do not infer arbitration, broadcast, port wiring, or a per-instance connection. The inspector separates the declared behavior from those observed connections. See [behavior and topology](docs/language.md#behavior-and-topology) for the exact rules.
+
+Use descriptions to state what moves, which component owns it while stalled, when a transfer is accepted, and what changes afterward. The [request arbitration example](examples/arbitrated_requests.drarch) specifies queue retention and priority updates. Render it with:
+
+```bash
+node bin/drarch.js render examples/arbitrated_requests.drarch -o output/arbitrated_requests.html
+```
+
+The [ten-pass review record](docs/readability-review.md) records the changes and verification behind this behavior.
 
 ## Using the viewer
 
 The diagram occupies a scrollable canvas; the sidebar contains search and the inspector. Search matches names, qualified IDs such as `execution.array.pe`, and component types. Selecting a result brings the block into view at actual size or your larger zoom level. Selecting a group fits that group into view.
 
-Select a component to highlight its connected paths. The inspector lists its connections and links to its parent group. Select a connection to follow its **From** and **To** links. The **Flow legend** explains the line patterns used in the current diagram. On a narrow screen, the sidebar sits below the canvas; **View details** jumps to the inspector.
+Select a component to highlight its connected paths and inspect its behavior and per-flow peer counts. Select a connection to follow its **From** and **To** links. Open **Flows** to see the line patterns and dim selected flow types. Blocks and topology remain visible; **Overview** restores all flows. On a narrow screen, the sidebar sits below the canvas; **View details** jumps to the inspector.
 
 | Action | Keyboard |
 | --- | --- |
@@ -68,7 +106,7 @@ Shortcuts do not interrupt typing or browser shortcuts. Escape clears an active 
 
 ## Examples
 
-Run `npm run examples`, then open `output/index.html`. Each source produces an offline HTML viewer and an SVG.
+Run `npm run examples`, then open `output/index.html`. Each source produces an offline HTML viewer, an SVG, a source copy, and semantic model JSON.
 
 | Source | What it demonstrates |
 | --- | --- |
@@ -78,6 +116,8 @@ Run `npm run examples`, then open `output/index.html`. Each source produces an o
 | [NPU](examples/npu.drarch) | Compute arrays and local storage |
 | [Network on chip](examples/noc.drarch) | Routing and multiple connections |
 | [Nested accelerator](examples/nested_accelerator.drarch) | Groups and qualified references |
+| [Arbitrated requests](examples/arbitrated_requests.drarch) | Explicit 2:1 arbitration, acceptance, queue retention, and upstream backpressure |
+| [Dual-tile accelerator](examples/dual_tile_accelerator.drarch) | Nested compute/memory hierarchy and explicit 3:1 completion arbitration |
 
 The sections below explain the product design and longer-term goals. The [language reference](docs/language.md) is the source for implemented syntax and current limits.
 
@@ -204,9 +244,9 @@ Each primitive chooses a concise set of architectural properties to show when th
 | `mux` | `inputs`, `width` |
 | `demux` | `outputs`, `width` |
 | `crossbar` | `inputs`, `outputs`, `bandwidth` |
-| `generic` | Label only; users select any additional visible properties |
+| `generic` | Label and declared behavior; users select additional properties |
 
-Counts can appear in the block heading, such as `PE ×4`, rather than as a duplicate property line. Display choices change presentation without changing the underlying values.
+Instance counts appear in the heading, such as `PE ×4`, rather than as a duplicate property line. Counts greater than one, input/output ratios, declared behavior and its policy, and non-1:1 peer counts remain visible independently of `display`. Display choices change optional detail without changing the underlying values.
 
 Users can override the visible fields with a `display` list:
 
@@ -219,7 +259,7 @@ memory sram {
 }
 ```
 
-This shows capacity and latency inside the block while retaining bandwidth in the inspection view. An empty display list shows only the label. Each listed property must be present on the element.
+This shows capacity and latency inside the block while retaining bandwidth in the inspection view. An empty display list removes optional properties; it retains the label and structural information described above. Each listed property must be present on the element.
 
 ### Connections and flow types
 
@@ -458,6 +498,8 @@ The repository should include six representative architectures:
 5. **Queue / scheduler / PE:** queue depth, scheduling width, compute capacity, data flow, and backpressure.
 6. **Nested accelerator:** groups and hierarchical references.
 
+The additional **dual-tile accelerator** combines these features in a larger architecture with DMA, local scratchpads, shared L2, and completion feedback.
+
 ### Definition of done
 
 Drarch v0 is complete when:
@@ -507,7 +549,8 @@ drarch/
 │   ├── npu.drarch
 │   ├── noc.drarch
 │   ├── queue_scheduler_pe.drarch
-│   └── nested_accelerator.drarch
+│   ├── nested_accelerator.drarch
+│   └── dual_tile_accelerator.drarch
 ├── tests/                 # Node test runner, jsdom, SVG raster checks
 └── package.json
 ```

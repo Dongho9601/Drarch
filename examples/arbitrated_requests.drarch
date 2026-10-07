@@ -1,0 +1,67 @@
+arch ArbitratedRequests {
+    label: "Two requesters, one shared memory port"
+    desc: "Request-path excerpt. CPU and DMA queues contend for one memory request port. The arbiter includes request selection; return data is outside this view. A producer retains its head request until the memory accepts it."
+
+    queue cpu {
+        label: "CPU Requests"
+        desc: "Retains the oldest request while stalled. Removes it only when the arbiter forwards it and memory accepts it."
+        depth: 8
+    }
+
+    queue dma {
+        label: "DMA Requests"
+        desc: "Retains the oldest request while stalled. The input rate does not imply a grant or a guaranteed share of memory bandwidth."
+        depth: 16
+    }
+
+    generic arb {
+        label: "Request Arbiter"
+        desc: "Chooses one nonempty requester. On an accepted request, priority rotates to the other requester. If memory stalls, no request is consumed and priority does not advance. Request selection is included in this block."
+        behavior: arbitration
+        inputs: 2
+        outputs: 1
+        throughput: 1 req/cycle
+        policy: round_robin
+        display: [throughput]
+    }
+
+    memory port {
+        label: "Shared Memory"
+        desc: "Accepts at most one request per cycle. Signals backpressure when it cannot accept the selected request. Response routing is outside this request-path excerpt."
+        capacity: 1 MiB
+    }
+
+    cpu -> arb {
+        type: request
+        display: []
+    }
+
+    dma -> arb {
+        type: request
+        display: []
+    }
+
+    arb -> port {
+        type: request
+        rate: 1 req/cycle
+    }
+
+    port -> arb {
+        label: "not ready"
+        type: backpressure
+    }
+
+    arb -> cpu {
+        label: "hold"
+        type: backpressure
+    }
+
+    arb -> dma {
+        label: "hold"
+        type: backpressure
+    }
+
+    layout {
+        columns: [[cpu, dma], arb, port]
+    }
+}

@@ -43,7 +43,7 @@ function assertGeometry(model, geometry) {
   }
 }
 
-test('six examples have finite, nonoverlapping geometry and rasterize as standalone SVGs', async () => {
+test('all examples have finite, nonoverlapping geometry and rasterize as standalone SVGs', async () => {
   const directory = new URL('../examples/', import.meta.url);
   for (const filename of (await readdir(directory)).filter(f => f.endsWith('.drarch'))) {
     const model = compile(await readFile(new URL(filename, directory), 'utf8'));
@@ -106,7 +106,7 @@ test('compact count, per-instance throughput, defaults and explicit display over
   const byId = new Map(model.components.map(c => [c.id, c]));
   assert.equal(componentPresentation(byId.get('pe')).title, 'PE ×4');
   assert.match(componentPresentation(byId.get('pe')).propertyLines.join(' '), /1 op\/cycle.*instance/);
-  assert.equal(componentPresentation(byId.get('hidden')).title, 'hidden');
+  assert.equal(componentPresentation(byId.get('hidden')).title, 'hidden ×8');
   assert.deepEqual(componentPresentation(byId.get('hidden')).propertyLines, []);
   assert.deepEqual(componentPresentation(byId.get('g')).propertyLines, []);
   assert.equal((await layout(model)).nodes.length, 3);
